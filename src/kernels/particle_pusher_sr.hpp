@@ -447,9 +447,17 @@ namespace kernel::sr {
                                        e_plus_beta_cross_b[1],
                                        e_plus_beta_cross_b[2]) -
                               SQR(beta_dot_e) };
-      ux1(p) += coeff_sync * (kappaR[0] - gamma_prime_sqr * u_prime[0] * chiR_sqr);
-      ux2(p) += coeff_sync * (kappaR[1] - gamma_prime_sqr * u_prime[1] * chiR_sqr);
-      ux3(p) += coeff_sync * (kappaR[2] - gamma_prime_sqr * u_prime[2] * chiR_sqr);
+      const real_t loss = coeff_sync * gamma_prime_sqr * chiR_sqr;
+      if (loss > 0.2 * math::sqrt(gamma_prime_sqr)){
+        const real_t newLossCoeff = 0.2 * math::sqrt(gamma_prime_sqr)/(gamma_prime_sqr * chiR_sqr);
+        ux1(p) += newLossCoeff * (kappaR[0] - gamma_prime_sqr * u_prime[0] * chiR_sqr);
+        ux2(p) += newLossCoeff * (kappaR[1] - gamma_prime_sqr * u_prime[1] * chiR_sqr);
+        ux3(p) += newLossCoeff * (kappaR[2] - gamma_prime_sqr * u_prime[2] * chiR_sqr);
+      }else{
+        ux1(p) += coeff_sync * (kappaR[0] - gamma_prime_sqr * u_prime[0] * chiR_sqr);
+        ux2(p) += coeff_sync * (kappaR[1] - gamma_prime_sqr * u_prime[1] * chiR_sqr);
+        ux3(p) += coeff_sync * (kappaR[2] - gamma_prime_sqr * u_prime[2] * chiR_sqr);
+      }      
     }
 
     Inline void operator()(index_t p) const {

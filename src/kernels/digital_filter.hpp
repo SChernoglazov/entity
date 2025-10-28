@@ -1,4 +1,4 @@
-/**
+ /**
  * @file kernels/digital_filter.hpp
  * @brief Algorithms for covariant digital filtering
  * @implements
@@ -59,6 +59,7 @@ namespace kernel {
   class DigitalFilter_kernel {
     ndfield_t<D, 3>       array;
     const ndfield_t<D, 3> buffer;
+    const unsigned int    iter;
     const bool            is_axis_i2min, is_axis_i2max;
     const bool            is_conductor_i1min, is_conductor_i1max;
     const bool            is_conductor_i2min, is_conductor_i2max;
@@ -73,9 +74,11 @@ namespace kernel {
     DigitalFilter_kernel(ndfield_t<D, 3>&       array,
                          const ndfield_t<D, 3>& buffer,
                          const ncells_t (&size_)[D],
+			 const unsigned int iter,  
                          const boundaries_t<FldsBC>& boundaries)
       : array { array }
       , buffer { buffer }
+      , iter {iter} 
       , is_axis_i2min { (D == Dim::_2D) and (boundaries[1].first == FldsBC::AXIS) }
       , is_axis_i2max { (D == Dim::_2D) and (boundaries[1].second == FldsBC::AXIS) }
       , is_conductor_i1min { boundaries[0].first == FldsBC::CONDUCTOR }
@@ -196,7 +199,13 @@ namespace kernel {
         } else { // spherical
           // @TODO: get rid of temporary variables
           real_t cur_00, cur_0p1, cur_0m1;
-          if (is_axis_i2min && (i2 == i2_min)) {
+          if ((is_axis_i2min && (i2-i2_min) < iter) ||
+	      (is_axis_i2max && (i2_max-i2) < iter)) {
+	    array(i1, i2, cur::jx1) = buffer(i1, i2, cur::jx1);
+	    array(i1, i2, cur::jx2) = buffer(i1, i2, cur::jx2);
+	    array(i1, i2, cur::jx3) = buffer(i1, i2, cur::jx3);
+	  }else{
+          if (is_axis_i2min && (i2 == i2_min)) {	    
             /* --------------------------------- r, phi --------------------------------- */
             // ... filter in r
             cur_00  = FILTER2D_IN_I1(buffer, cur::jx1, i1, i2);
@@ -278,6 +287,7 @@ namespace kernel {
                                               buffer(i1 + 1, i2 - 1, comp));
             }
           }
+	  }
         }
       } else {
         raise::KernelError(

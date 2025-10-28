@@ -716,9 +716,73 @@ namespace ntt {
         if (not species.is_sorted()) {
           species.RemoveDead();
         }
-        const npart_t    nout = species.npart() / prtl_stride;
+        // @HACK_FOR_SASHA >:
+        // const npart_t    nout = species.npart() / prtl_stride;
+        // ignoring prtl_stride
+        npart_t ncriterion = 0;
+	const auto& metric = local_domain->mesh.metric;
+        auto    tag        = species.tag;
+        auto    ux1        = species.ux1;
+        auto    ux2        = species.ux2;
+        auto    ux3        = species.ux3;
+	auto    i1         = species.i1;
+	auto    i2         = species.i2;
+	auto    dx1        = species.dx1;
+	auto    dx2        = species.dx2;	
+	if constexpr (M::Dim == Dim::_2D){
+        Kokkos::parallel_reduce(
+          "CountNout",
+          species.rangeActiveParticles(),
+          Lambda(index_t p, npart_t & l_nout) {
+            if (tag(p) == ParticleTag::alive){
+	      const auto   i { i1(p) + N_GHOSTS };
+	      const real_t dx1_ { dx1(p) };
+	      const auto   j { i2(p) + N_GHOSTS };
+	      const real_t dx2_ { dx2(p) };
+	      const coord_t<Dim::_2D> xc2d{static_cast<real_t>(i1(p)) + dx1(p),
+					   static_cast<real_t>(i2(p)) + dx2(p)};
+	      coord_t<Dim::_2D> xPh { ZERO };
+	      metric.template convert<Crd::Cd, Crd::Ph>(xc2d, xPh);
+
+	      real_t dipoleConst = xPh[0]/(pow(math::sin(xPh[1]),2)+1e-6);
+
+	      if (dipoleConst>5.0 && dipoleConst<20.0 && xPh[0]<6 && xPh[0]>1.1){		
+		l_nout += 1;
+	      }
+            }
+          },
+          ncriterion);
+	}
+        array_t<npart_t>  prtl_ind_cntr { "prtl_ind_cntr" };
+        array_t<npart_t*> prtl_indices { "prtl_indices", ncriterion };
+	if constexpr (M::Dim == Dim::_2D){
+        Kokkos::parallel_for(
+          "GeneratePrtlIndices",
+          species.rangeActiveParticles(),
+          Lambda(index_t p) {
+            if (tag(p) == ParticleTag::alive){
+	      const auto   i { i1(p) + N_GHOSTS };
+	      const real_t dx1_ { dx1(p) };
+	      const auto   j { i2(p) + N_GHOSTS };
+	      const real_t dx2_ { dx2(p) };
+	      const coord_t<Dim::_2D> xc2d{static_cast<real_t>(i1(p)) + dx1(p),
+					   static_cast<real_t>(i2(p)) + dx2(p)};
+	      coord_t<Dim::_2D> xPh { ZERO };
+	      metric.template convert<Crd::Cd, Crd::Ph>(xc2d, xPh);
+
+	      real_t dipoleConst = xPh[0]/(pow(math::sin(xPh[1]),2)+1e-6);
+
+	      if (dipoleConst>5.0 && dipoleConst<20.0 && xPh[0]<6 && xPh[0]>1.1){
+		const auto idx    = Kokkos::atomic_fetch_add(&prtl_ind_cntr(), 1);
+		prtl_indices(idx) = p;
+	      }
+            }
+          });
+	  }
+        const npart_t    nout = ncriterion / prtl_stride;
+        // @HACK_FOR_SASHA <:
         array_t<real_t*> buff_x1, buff_x2, buff_x3;
-        array_t<real_t*> buff_ux1 { "u1", nout };
+        array_t<real_t*> buff_ux1 { "ux1", nout };
         array_t<real_t*> buff_ux2 { "ux2", nout };
         array_t<real_t*> buff_ux3 { "ux3", nout };
         array_t<real_t*> buff_wei { "w", nout };
@@ -739,14 +803,17 @@ namespace ntt {
             "PrtlToPhys",
             nout,
             kernel::PrtlToPhys_kernel<S, M>(prtl_stride,
-                                            buff_x1, buff_x2, buff_x3,
-                                            buff_ux1, buff_ux2, buff_ux3,
-                                            buff_wei,
-                                            species.i1, species.i2, species.i3,
-                                            species.dx1, species.dx2, species.dx3,
-                                            species.ux1, species.ux2, species.ux3,
-                                            species.phi, species.weight,
-                                            local_domain->mesh.metric));
+                                                    // @HACK_FOR_SASHA >:
+                                                    prtl_indices,
+                                                    // @HACK_FOR_SASHA <:
+                                                    buff_x1, buff_x2, buff_x3,
+                                                    buff_ux1, buff_ux2, buff_ux3,
+                                                    buff_wei,
+                                                    species.i1, species.i2, species.i3,
+                                                    species.dx1, species.dx2, species.dx3,
+                                                    species.ux1, species.ux2, species.ux3,
+                                                    species.phi, species.weight,
+                                                    local_domain->mesh.metric));
           // clang-format on
         }
         npart_t offset   = 0;
