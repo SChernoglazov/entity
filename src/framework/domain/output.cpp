@@ -746,7 +746,7 @@ namespace ntt {
 
 	      real_t dipoleConst = xPh[0]/(pow(math::sin(xPh[1]),2)+1e-6);
 
-	      if (dipoleConst>5.0 && dipoleConst<20.0 && xPh[0]<6 && xPh[0]>1.1){		
+	      if (dipoleConst>5.0 && dipoleConst<20.0 && xPh[0]<6 && xPh[0]>1.1 && xPh[1]<1.5708){		
 		l_nout += 1;
 	      }
             }
@@ -772,7 +772,7 @@ namespace ntt {
 
 	      real_t dipoleConst = xPh[0]/(pow(math::sin(xPh[1]),2)+1e-6);
 
-	      if (dipoleConst>5.0 && dipoleConst<20.0 && xPh[0]<6 && xPh[0]>1.1){
+	      if (dipoleConst>5.0 && dipoleConst<20.0 && xPh[0]<6 && xPh[0]>1.1 && xPh[1]<1.5708){
 		const auto idx    = Kokkos::atomic_fetch_add(&prtl_ind_cntr(), 1);
 		prtl_indices(idx) = p;
 	      }
