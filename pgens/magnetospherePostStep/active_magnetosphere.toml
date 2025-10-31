@@ -1,0 +1,137 @@
+[simulation]
+  name = "magnetosphere"
+  engine = "srpic"
+  runtime = 180.0
+
+  [simulation.domain]
+    decomposition = [8,8,1]
+    
+[grid]
+  resolution = [2800,3000]
+  extent = [[1.0, 200.0]]
+
+  [grid.metric]
+    metric = "qspherical"
+    #    qsph_r0 =  0.2264
+
+  [grid.boundaries]
+    fields = [["ATMOSPHERE", "MATCH"]]    
+    particles = [["ATMOSPHERE", "ABSORB"]]
+
+  [grid.boundaries.match]
+    ds = 20.0
+    
+  [grid.boundaries.absorb]
+    ds = 20.0
+
+  [grid.boundaries.atmosphere]
+    temperature = 0.1
+    density = 6.0
+    height = 0.05
+    species = [1, 2]
+    ds = 1.0
+    
+[scales]
+  larmor0 = 1.25e-6
+  skindepth0 = 0.003
+
+[algorithms]
+  current_filters = 16
+
+  [algorithms.timestep]
+    CFL = 0.5
+
+  [algorithms.gca]
+    e_ovr_b_max = 0.9
+    larmor_max = 5e-3#0.05
+
+  [algorithms.synchrotron]
+    gamma_rad = 1.0
+
+[particles]
+  ppc0 = 50.0
+  use_weights = true
+  sort_interval = 50
+
+  [[particles.species]]
+  label = "e-"
+  mass = 1.0
+  charge = -1.0
+  maxnpart = 1e8
+  pusher = "Boris,GCA"
+  cooling = "Synchrotron"
+  n_payloads = 1
+  
+  [[particles.species]]
+  label = "e+"
+  mass = 1.0
+  charge = 1.0
+  maxnpart = 1e8
+  pusher = "Boris,GCA"
+  cooling = "Synchrotron"
+  n_payloads = 1
+
+  [[particles.species]]
+  label = "es-"
+  mass = 1.0
+  charge = -1.0
+  maxnpart = 2e8
+  pusher = "Boris,GCA"
+  cooling = "Synchrotron"
+  n_payloads = 1
+  
+  [[particles.species]]
+  label = "es+"
+  mass = 1.0
+  charge = 1.0
+  maxnpart = 2e8
+  pusher = "Boris,GCA"
+  cooling = "Synchrotron"
+  n_payloads = 1
+
+[setup]
+  Bsurf = 1.0
+  period = 62.8
+  Curvature = 1.0
+  Compactness = 0.0
+  angThres = 0.05
+  rad_radius = 2.0
+  pair_dens1 = 10.0
+  pair_dens2 = 100.0
+  pair_densCS = 20.0
+  BoverBq = 2.0
+  gammaSec = 8.0
+  TimeEmit = 0.0002
+  GammaThres1 = 30.0
+  GammaThres2 = 30.0
+  meanPath = 0.1
+  spinup_time = 1.0
+  flipFrac= 0.5
+  PPinCS = false
+  
+[output]
+  format = "hdf5"
+  interval_time = 0.1
+  separate_files = true
+  
+  [output.fields]
+    ##interval_time = 1.0
+    quantities = ["N_1+N_3", "N_2+N_4", "E", "B", "J"]
+    downsampling = [2, 2, 1]
+
+  [output.particles]    
+    enable = true
+    species = [1, 2, 3, 4]
+    stride = 120
+
+  [output.spectra]
+    enable = false
+
+[diagnostics]
+  interval = 20
+  colored_stdout = false
+  blocking_timers = false
+
+[checkpoint]
+  interval = 10000
+
