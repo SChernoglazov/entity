@@ -333,6 +333,9 @@ namespace user {
                     ext_current.a_imag_inv } {};
 
     inline void InitPrtls(Domain<S, M>& local_domain) {
+      const auto V0 {params.template get<real_t>("scales.V0")};
+      const auto dx0 {params.template get<real_t>("scales.dx0")};
+      printf("V0 = %f, dx0=%f\n", V0, dx0);
       const auto energy_dist  = arch::Maxwellian<S, M>(local_domain.mesh.metric,
                                                       local_domain.random_pool,
                                                       temperature);

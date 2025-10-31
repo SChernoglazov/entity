@@ -249,6 +249,7 @@ namespace user {
       const auto PairDensityCS {params.template get<real_t>("setup.pair_densCS") };
       const auto gammaSec {params.template get<real_t>("setup.gammaSec") };
       const auto FlippingFraction {params.template get<real_t>("setup.flipFrac")};
+      const auto FlippingDistance {params.template get<real_t>("setup.flipDist")};
       const auto PPinCS {params.template get<bool>("setup.PPinCS")};
       //const auto dt_ {dt};
       //const auto _Bsurf { Bsurf };
@@ -429,7 +430,7 @@ namespace user {
 	      //random_pool.free_state(rand_gen1);
 	      auto direction_factor = randf(p + 1);
 	      direction_factor = direction_factor * 0.5*(math::tanh((dipoleConst-4.0)/0.02)+math::tanh((20.0-dipoleConst)/0.02));
- 	      if ((betaTetr[0] < 0)  && (direction_factor < FlippingFraction) && (xPh[0]>(rad_radius-0.2))){ 
+ 	      if ((betaTetr[0] < 0)  && (direction_factor < FlippingFraction) && (xPh[0]>(rad_radius-FlippingDistance))){ 
 		ux1_elec(elec_p + offset_elec) = -1*mom * beta_x;
 		ux2_elec(elec_p + offset_elec) = -1*mom * beta_y;
 		ux3_elec(elec_p + offset_elec) = -1*mom * beta_z;
@@ -447,7 +448,7 @@ namespace user {
 	      i2_pos(pos_p + offset_pos) = i2(p);
 	      dx2_pos(pos_p + offset_pos) = dx2(p);
 	      phi_pos(pos_p + offset_pos) = phi(p);
-	      if ((betaTetr[0] < 0) && (direction_factor < FlippingFraction) && (xPh[0]>(rad_radius-0.2))){
+	      if ((betaTetr[0] < 0) && (direction_factor < FlippingFraction) && (xPh[0]>(rad_radius-FlippingDistance))){
 		ux1_pos(pos_p + offset_pos) = -1*mom * beta_x;
 		ux2_pos(pos_p + offset_pos) = -1*mom * beta_y;
 		ux3_pos(pos_p + offset_pos) = -1*mom * beta_z;

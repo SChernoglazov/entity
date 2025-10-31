@@ -107,7 +107,7 @@
   meanPath = 0.1
   spinup_time = 1.0
   flipFrac= 0.5
-  flipDist= 0.2
+  flipDist= 0.5
   PPinCS = false
   
 [output]
