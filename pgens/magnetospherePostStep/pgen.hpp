@@ -151,7 +151,7 @@ namespace user {
     
     inline PGen() {}
 
-    void CustomFieldEvolution(std::size_t step, long double time, Domain<S, M>& domain, bool updateE, bool updateB) {
+    /*void CustomFieldEvolution(std::size_t step, long double time, Domain<S, M>& domain, bool updateE, bool updateB) {
       if(updateB){
         const auto comp {params.template get<real_t>("setup.Compactness") };
         const auto _omega {static_cast<real_t>(constant::TWO_PI) / params.template get<real_t>("setup.period", ONE)};	
@@ -223,7 +223,7 @@ namespace user {
             EB(i1, i2, em::bx3) += coeff* inv_sqrt_detH_pHpH *( h2_p1pH * corrEx2iP1j - h2_0pH * corrEx2ij + h1_pHp1 * corrEx1ijP1 - h1_pH0 * corrEx1ij);
           });
       }
-    }
+      }*/
 
     
     auto AtmFields(real_t time) const -> DriveFields<D> {
