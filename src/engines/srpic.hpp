@@ -348,7 +348,7 @@ namespace ntt {
                                              : ZERO;
         // cooling
         const auto has_synchrotron = (cooling == Cooling::SYNCHROTRON);
-        const auto has_compton = (cooling == Cooling::COMPTON);
+        const auto has_compton     = (cooling == Cooling::COMPTON);
         const auto sync_grad       = has_synchrotron
                                        ? m_params.template get<real_t>(
                                      "algorithms.synchrotron.gamma_rad")
@@ -359,17 +359,16 @@ namespace ntt {
                                         "scales.omegaB0") /
                                       (SQR(sync_grad) * species.mass())
                                        : ZERO;
-        const auto comp_grad       = has_compton
-                                      ? m_params.template get<real_t>(
-                                     "algorithms.compton.gamma_rad")
-                                      : ZERO; 
-        const auto comp_coeff      = has_compton
-                                      ? (real_t)(0.1) * dt * 
-                                      m_params.template get<real_t>(
-                                          "scales.omegaB0") / (SQR(comp_grad) * species.mass())
-                                      : ZERO;
+        const auto comp_grad    = has_compton ? m_params.template get<real_t>(
+                                               "algorithms.compton.gamma_rad")
+                                              : ZERO;
+        const auto comp_coeff   = has_compton ? (real_t)(0.1) * dt *
+                                                m_params.template get<real_t>(
+                                                  "scales.omegaB0") /
+                                                (SQR(comp_grad) * species.mass())
+                                              : ZERO;
         // toggle to indicate whether pgen defines the external force
-        bool has_extforce = false;
+        bool       has_extforce = false;
         if constexpr (traits::has_member<traits::pgen::ext_force_t, pgen_t>::value) {
           has_extforce = true;
           // toggle to indicate whether the ext force applies to current species
