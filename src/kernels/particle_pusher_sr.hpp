@@ -494,7 +494,7 @@ namespace kernel::sr {
       vec_t<Dim::_3D> ei_Cart_rad { ZERO }, bi_Cart_rad { ZERO };
       bool            is_gca { false };
 
-      // field interpolation 0th-9th order
+      // field interpolation 0th-11th order
       getInterpFlds<SHAPE_ORDER>(p, ei, bi);
 
       metric.template transform_xyz<Idx::U, Idx::XYZ>(xp_Cd, ei, ei_Cart);
