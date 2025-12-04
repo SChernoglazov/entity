@@ -32,6 +32,7 @@ namespace kernel {
   template <SimEngine::type S, class M, unsigned short O = 1u>
   class DepositCurrents_kernel {
     static_assert(M::is_metric, "M must be a metric class");
+    static_assert(O <= 11u, "Shape function order O must be <= 11");
     static constexpr auto D = M::Dim;
 
     scatter_ndfield_t<D, 3>  J;
