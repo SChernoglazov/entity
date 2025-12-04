@@ -201,36 +201,6 @@
   #   @default: 0
   current_filters = ""
 
-  [algorithms.deposit]
-    # Enable the current deposition
-    #   @type: bool
-    #   @default: true
-    enable = ""
-    # Order of the particle shape function
-    #   @type: int
-    #   @default: 1
-    order = ""
-
-  # @TODO: fix fieldsolver params below
-  [algorithms.fieldsolver]
-    # Enable the EM fieldsolver
-    #   @type: bool
-    #   @default: true
-    enable = ""
-    # Yee - all 0.0 - default
-    # 1D
-    deltax = -0.065
-    # 2D
-    deltay = -0.065
-    betaxy = -0.065
-    betayx = -0.065
-    # 3D - not yet tested
-    deltaz = 0.0
-    betaxz = 0.0
-    betazx = 0.0
-    betayz = 0.0
-    betazy = 0.0
-
   [algorithms.timestep]
     # Courant-Friedrichs-Lewy number
     #   @type: float [0.0 -> 1.0]
@@ -248,6 +218,16 @@
     #     @type: float
     #     @from: `algorithms.timestep.CFL`, `scales.dx0`
     #     @value: `CFL * dx0`
+
+  [algorithms.deposit]
+    # Enable the current deposition
+    #   @type: bool
+    #   @default: true
+    enable = ""
+    # Order of the particle shape function
+    #   @type: int
+    #   @default: 1
+    order = ""
 
   [algorithms.gr]
     # Stepsize for numerical differentiation in GR pusher
