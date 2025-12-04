@@ -3,13 +3,6 @@
 
 #include "arch/traits.h"
 
-#include "metrics/kerr_schild.h"
-#include "metrics/kerr_schild_0.h"
-#include "metrics/minkowski.h"
-#include "metrics/qkerr_schild.h"
-#include "metrics/qspherical.h"
-#include "metrics/spherical.h"
-
 #include "archetypes/field_setter.h"
 
 #include "engines/engine.hpp"
@@ -17,6 +10,8 @@
 #include <Kokkos_Core.hpp>
 
 #include <string>
+
+#include "engine_registry.h"
 
 namespace ntt {
 
@@ -71,13 +66,8 @@ namespace ntt {
     print_report();
   }
 
-  template class Engine<SimEngine::SRPIC, metric::Minkowski<Dim::_1D>>;
-  template class Engine<SimEngine::SRPIC, metric::Minkowski<Dim::_2D>>;
-  template class Engine<SimEngine::SRPIC, metric::Minkowski<Dim::_3D>>;
-  template class Engine<SimEngine::SRPIC, metric::Spherical<Dim::_2D>>;
-  template class Engine<SimEngine::SRPIC, metric::QSpherical<Dim::_2D>>;
-  template class Engine<SimEngine::GRPIC, metric::KerrSchild<Dim::_2D>>;
-  template class Engine<SimEngine::GRPIC, metric::KerrSchild0<Dim::_2D>>;
-  template class Engine<SimEngine::GRPIC, metric::QKerrSchild<Dim::_2D>>;
+#define NTT_INSTANTIATE_ENGINE(E, M, D) template class Engine<E<M<D>>::S, M<D>>;
+  NTT_ENGINE_METRIC_DIMENSION_REGISTRY(NTT_INSTANTIATE_ENGINE)
+#undef NTT_INSTANTIATE_ENGINE
 
 } // namespace ntt

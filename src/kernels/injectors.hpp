@@ -26,7 +26,7 @@ namespace kernel {
   using namespace ntt;
 
   template <Dimension D, Coord::type C, bool T>
-  Inline void InjectParticle(const npart_t&              p,
+  Inline void InjectParticle(npart_t                     p,
                              const array_t<int*>&        i1_arr,
                              const array_t<int*>&        i2_arr,
                              const array_t<int*>&        i3_arr,
@@ -43,10 +43,10 @@ namespace kernel {
                              const tuple_t<int, D>&      xi_Cd,
                              const tuple_t<prtldx_t, D>& dxi_Cd,
                              const vec_t<Dim::_3D>&      v_Cd,
-                             const real_t&               weight       = ONE,
-                             const real_t&               phi          = ZERO,
-                             const npart_t&              domain_idx   = 0u,
-                             const npart_t&              species_cntr = 0u) {
+                             real_t                      weight       = ONE,
+                             real_t                      phi          = ZERO,
+                             npart_t                     domain_idx   = 0u,
+                             npart_t                     species_cntr = 0u) {
     if constexpr (D == Dim::_1D or D == Dim::_2D or D == Dim::_3D) {
       i1_arr(p)  = xi_Cd[0];
       dx1_arr(p) = dxi_Cd[0];
@@ -615,11 +615,22 @@ namespace kernel {
       return idx_h();
     }
 
-    Inline void inject1(const index_t&                   index,
+    Inline auto injected_ppc(const coord_t<M::Dim>& x_Ph) const -> npart_t {
+      const auto ppc_real = ppc0 * spatial_dist(x_Ph);
+      auto       ppc      = static_cast<npart_t>(ppc_real);
+      auto       rand_gen = random_pool.get_state();
+      if (Random<real_t>(rand_gen) < (ppc_real - static_cast<real_t>(ppc))) {
+        ppc += 1;
+      }
+      random_pool.free_state(rand_gen);
+      return ppc;
+    }
+
+    Inline void inject1(const index_t                    index,
                         const tuple_t<int, M::Dim>&      xi_Cd,
                         const tuple_t<prtldx_t, M::Dim>& dxi_Cd,
                         const vec_t<Dim::_3D>&           v_Cd,
-                        const real_t&                    weight) const {
+                        const real_t                     weight) const {
       // clang-format off
       if (not use_tracking_1) {
         InjectParticle<M::Dim, M::CoordType, false>(index + offset1,
@@ -640,27 +651,27 @@ namespace kernel {
       // clang-format on
     }
 
-    Inline void inject2(const index_t&                   index,
+    Inline void inject2(const index_t                    index,
                         const tuple_t<int, M::Dim>&      xi_Cd,
                         const tuple_t<prtldx_t, M::Dim>& dxi_Cd,
                         const vec_t<Dim::_3D>&           v_Cd,
-                        const real_t&                    weight) const {
+                        const real_t                     weight) const {
       // clang-format off
       if (not use_tracking_2) {
-        InjectParticle<M::Dim, M::CoordType, false>(index + offset1,
+        InjectParticle<M::Dim, M::CoordType, false>(index + offset2,
                                                     i1s_2, i2s_2, i3s_2,
                                                     dx1s_2, dx2s_2, dx3s_2,
                                                     ux1s_2, ux2s_2, ux3s_2,
                                                     phis_2, weights_2, tags_2, pldis_2,
                                                     xi_Cd, dxi_Cd, v_Cd, weight, ZERO);
       } else {
-        InjectParticle<M::Dim, M::CoordType, true>(index + offset1,
+        InjectParticle<M::Dim, M::CoordType, true>(index + offset2,
                                                    i1s_2, i2s_2, i3s_2,
                                                    dx1s_2, dx2s_2, dx3s_2,
                                                    ux1s_2, ux2s_2, ux3s_2,
                                                    phis_2, weights_2, tags_2, pldis_2,
                                                    xi_Cd, dxi_Cd, v_Cd, weight, ZERO,
-                                                   domain_idx, index + cntr1);
+                                                   domain_idx, index + cntr2);
       }
       // clang-format on
     }
@@ -672,7 +683,7 @@ namespace kernel {
         coord_t<Dim::_1D> x_Ph { ZERO };
         metric.template convert<Crd::Cd, Crd::Ph>(x_Cd, x_Ph);
 
-        const auto ppc = static_cast<npart_t>(ppc0 * spatial_dist(x_Ph));
+        const auto ppc = injected_ppc(x_Ph);
         if (ppc == 0) {
           return;
         }
@@ -722,7 +733,7 @@ namespace kernel {
         }
         metric.template convert<Crd::Cd, Crd::Ph>(x_Cd, x_Ph);
 
-        const auto ppc = static_cast<npart_t>(ppc0 * spatial_dist(x_Ph));
+        const auto ppc = injected_ppc(x_Ph);
         if (ppc == 0) {
           return;
         }
@@ -786,7 +797,7 @@ namespace kernel {
         coord_t<Dim::_3D> x_Ph { ZERO };
         metric.template convert<Crd::Cd, Crd::Ph>(x_Cd, x_Ph);
 
-        const auto ppc = static_cast<npart_t>(ppc0 * spatial_dist(x_Ph));
+        const auto ppc = injected_ppc(x_Ph);
         if (ppc == 0) {
           return;
         }
