@@ -201,16 +201,6 @@
   #   @default: 0
   current_filters = ""
 
-  [algorithms.toggles]
-    # Toggle for the field solver
-    #   @type: bool
-    #   @default: true
-    fieldsolver = ""
-    # Toggle for the current deposition
-    #   @type: bool
-    #   @default: true
-    deposit = ""
-
   [algorithms.timestep]
     # Courant-Friedrichs-Lewy number
     #   @type: float [0.0 -> 1.0]
@@ -228,6 +218,16 @@
     #     @type: float
     #     @from: `algorithms.timestep.CFL`, `scales.dx0`
     #     @value: `CFL * dx0`
+
+  [algorithms.deposit]
+    # Enable the current deposition
+    #   @type: bool
+    #   @default: true
+    enable = ""
+    # Order of the particle shape function
+    #   @type: int
+    #   @default: 1
+    order = ""
 
   [algorithms.gr]
     # Stepsize for numerical differentiation in GR pusher

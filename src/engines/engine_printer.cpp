@@ -306,6 +306,12 @@ namespace ntt {
         add_param(report, 4, "Problem generator", "%s", pgen.c_str());
         add_param(report, 4, "Engine", "%s", SimEngine(S).to_string());
         add_param(report, 4, "Metric", "%s", Metric(M::MetricType).to_string());
+#if SHAPE_ORDER == 0
+        add_param(report, 4, "Deposit", "%s", "zigzag");
+#else
+        add_param(report, 4, "Deposit", "%s", "esirkepov");
+        add_param(report, 4, "Interpolation order", "%i", SHAPE_ORDER);
+#endif
         add_param(report, 4, "Timestep [dt]", "%.3e", dt);
         add_param(report, 4, "Runtime", "%.3e [%d steps]", runtime, max_steps);
         report += "\n";

@@ -99,10 +99,10 @@ namespace ntt::defaults {
   namespace synchrotron {
     const real_t gamma_rad = 1.0;
   } // namespace synchrotron
-  
-  namespace compton{
+
+  namespace compton {
     const real_t gamma_rad = 1.0;
-  }
+  } // namespace compton
 } // namespace ntt::defaults
 
 #endif // GLOBAL_DEFAULTS_H
