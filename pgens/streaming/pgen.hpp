@@ -18,43 +18,36 @@ namespace user {
   using namespace ntt;
   using prmvec_t = std::vector<real_t>;
 
-    template <Dimension D>
+  template <Dimension D>
   struct InitFields {
 
-    InitFields(const prmvec_t& B0)
-      : B1 { ZERO }
-      , B2 { ZERO }
-      , B3 { ZERO } {
+    /*
+      Sets up background magnetic field for the simulation.
 
-        // normalize the magnetic field vector
-        real_t B_norm = ONE / math::sqrt(SQR(B0[0]) + SQR(B0[1]) + SQR(B0[2]));
-
-        // make sure we don't divide by zero
-        if (std::isinf(B_norm)) {
-          B_norm = ZERO;
-        }
-
-        // assigne normalized B-field components
-        B1 = B0[0] * B_norm;
-        B2 = B0[1] * B_norm;
-        B3 = B0[2] * B_norm;
-      }
+      @param bmag: magnetic field scaling
+      @param btheta: magnetic field polar angle
+      @param bphi: magnetic field azimuthal angle
+    */
+    InitFields(real_t bmag, real_t btheta, real_t bphi)
+      : Bmag { bmag }
+      , Btheta { btheta * static_cast<real_t>(convert::deg2rad) }
+      , Bphi { bphi * static_cast<real_t>(convert::deg2rad) } {}
 
     // magnetic field components
     Inline auto bx1(const coord_t<D>&) const -> real_t {
-      return B1;
+      return Bmag * math::cos(Btheta);
     }
 
     Inline auto bx2(const coord_t<D>&) const -> real_t {
-      return B2;
+      return Bmag * math::sin(Btheta) * math::sin(Bphi);
     }
 
     Inline auto bx3(const coord_t<D>&) const -> real_t {
-      return B3;
+      return Bmag * math::sin(Btheta) * math::cos(Bphi);
     }
 
   private:
-    real_t B1, B2, B3;
+    const real_t Btheta, Bphi, Bmag;
   };
 
   template <SimEngine::type S, class M>
@@ -74,6 +67,7 @@ namespace user {
     prmvec_t drifts_in_x, drifts_in_y, drifts_in_z;
     prmvec_t densities, temperatures;
     // initial magnetic field
+    real_t        Btheta, Bphi, Bmag;
     InitFields<D> init_flds;
 
     inline PGen(const SimulationParams& p, const Metadomain<S, M>& global_domain)
@@ -81,7 +75,10 @@ namespace user {
       , drifts_in_x { p.template get<prmvec_t>("setup.drifts_in_x", prmvec_t {}) }
       , drifts_in_y { p.template get<prmvec_t>("setup.drifts_in_y", prmvec_t {}) }
       , drifts_in_z { p.template get<prmvec_t>("setup.drifts_in_z", prmvec_t {}) }
-      , init_flds { p.template get<prmvec_t>("setup.B0", prmvec_t {}) }
+      , Bmag { p.template get<real_t>("setup.Bmag", ZERO) }
+      , Btheta { p.template get<real_t>("setup.Btheta", ZERO) }
+      , Bphi { p.template get<real_t>("setup.Bphi", ZERO) }
+      , init_flds { Bmag, Btheta, Bphi }
       , densities { p.template get<prmvec_t>("setup.densities", prmvec_t {}) }
       , temperatures { p.template get<prmvec_t>("setup.temperatures", prmvec_t {}) } {
       const auto nspec = p.template get<std::size_t>("particles.nspec");
