@@ -1,86 +1,99 @@
 [simulation]
   name    = "bell"
   engine  = "srpic"
-  runtime = 1000.0
+  runtime = 100000.0
 
 [grid]
-  resolution = [1024, 1024]
-  extent     = [[-10.0, 10.0], [-10.0, 10.0]]
+  resolution = [8192]
+  extent     = [[0.0, 512.0]]
 
   [grid.metric]
     metric = "minkowski"
 
   [grid.boundaries]
-    fields    = [["PERIODIC"], ["PERIODIC"]]
-    particles = [["PERIODIC"], ["PERIODIC"]]
+    fields    = [["PERIODIC"]]
+    particles = [["PERIODIC"]]
 
 [scales]
   larmor0    = 1.0
   skindepth0 = 1.0
 
 [algorithms]
-  current_filters = 4
+  current_filters = 8
 
   [algorithms.timestep]
     CFL = 0.5
 
 [particles]
-  ppc0 = 16.0
+  ppc0 = 512.0
 
   [[particles.species]]
-    label    = "e-Px"
-    mass     = 100.0
-    charge   = -1.0
-    maxnpart = 1e8
-
-  [[particles.species]]
-    label    = "e+bg1"
-    mass     = 1.0
+    label    = "ions"
+    mass     = 50.0
     charge   = 1.0
-    maxnpart = 1e8
-    pusher   = "None"
+    maxnpart = 5e6
 
   [[particles.species]]
-    label    = "e-Mx"
+    label    = "e-1"
     mass     = 1.0
     charge   = -1.0
-    maxnpart = 1e8
+    maxnpart = 5e6
 
   [[particles.species]]
-    label    = "e+bg2"
-    mass     = 1.0
+    label    = "CR"
+    mass     = 50.0
     charge   = 1.0
-    maxnpart = 1e0
-    pusher   = "None"
+    maxnpart = 1e5
+
+  [[particles.species]]
+    label    = "e-2"
+    mass     = 1.0
+    charge   = -1.0
+    maxnpart = 1e5
 
 [setup]
   # Drift 4-velocities for each species in all 3 directions
   #   @type: array of floats (length = nspec)
   #   @default: [ 0.0, ... ]
-  drifts_in_x = [0.1, 0.0, 0.1, 0.0]
+  drifts_in_x = [0.0, -0.00990098030746225, -99.9962499609, -0.00990098030746225]
   drifts_in_y = [0.0, 0.0, 0.0, 0.0]
   drifts_in_z = [0.0, 0.0, 0.0, 0.0]
   # Pair-wise species densities in units of n0
   #   @type: array of floats (length = nspec/2)
   #   @default: [ 2 / nspec, ... ]
-  densities = [0.5, 0.5]
+  densities = [1.0, 0.01]
   # Species temperatures in units of m0 (c^2)
   #   @type: array of floats (length = nspec)
   #   @default: [ 0.0, ... ]
   temperatures = [1e-4, 1e-4, 1e-4, 1e-4]
   # Magnetic field 
-  B0 = [1.0, 0.0, 0.0]
+  Bmag    = 1.0   # magnetic field strength as fraction of magnetisation
+  Btheta  = 0.0   # magnetic field angle in the plane  [deg]
+  Bphi    = 0.0   # magnetic field angle out of plane  [deg]
 
 [output]
-  interval_time = 10.0
+  interval_time = 100.0
   format = "BPFile"
 
   [output.fields]
-    quantities = ["N_1", "N_3", "E", "B"]
-
-  [output.particles]
-    species = [1, 3]
-    stride  = 10
+    enable = true
+    quantities = ["E", "B"]
 
   [output.spectra]
     enable = false
+
+  [output.particles]
+    enable = false
+
+  [output.stats]
+    enable = true
+    interval_time = 10.0
+
+[diagnostics]
+  log_level = "WARNING"
+  blocking_timers = true
+  colored_stdout = false
+
+[checkpoint]
+  interval = 1000
+  keep = 1
