@@ -36,6 +36,9 @@ namespace math = Kokkos;
 template <typename T>
 using array_t = Kokkos::View<T>;
 
+template <typename T>
+using array_h_t = Kokkos::View<T, Kokkos::HostSpace>;
+
 // Array mirror alias of arbitrary type
 template <typename T>
 using array_mirror_t = typename array_t<T>::HostMirror;
@@ -249,7 +252,7 @@ auto CreateRangePolicyOnHost(const tuple_t<ncells_t, D>&,
                              const tuple_t<ncells_t, D>&) -> range_h_t<D>;
 
 // Random number pool/generator type alias
-using random_number_pool_t = Kokkos::Random_XorShift1024_Pool<Kokkos::DefaultExecutionSpace>;
+using random_number_pool_t = Kokkos::Random_XorShift64_Pool<Kokkos::DefaultExecutionSpace>;
 using random_generator_t = typename random_number_pool_t::generator_type;
 
 // Random number generator functions

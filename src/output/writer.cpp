@@ -163,32 +163,6 @@ namespace out {
     }
   }
 
-  void Writer::defineParticleOutputs(Dimension                   dim,
-                                     const std::vector<spidx_t>& specs) {
-    m_prtl_writers.clear();
-    for (const auto& s : specs) {
-      m_prtl_writers.emplace_back(s);
-    }
-    for (const auto& prtl : m_prtl_writers) {
-      for (auto d { 0u }; d < dim; ++d) {
-        m_io.DefineVariable<real_t>(prtl.name("X", d + 1),
-                                    { adios2::UnknownDim },
-                                    { adios2::UnknownDim },
-                                    { adios2::UnknownDim });
-      }
-      for (auto d { 0u }; d < Dim::_3D; ++d) {
-        m_io.DefineVariable<real_t>(prtl.name("U", d + 1),
-                                    { adios2::UnknownDim },
-                                    { adios2::UnknownDim },
-                                    { adios2::UnknownDim });
-      }
-      m_io.DefineVariable<real_t>(prtl.name("W", 0),
-                                  { adios2::UnknownDim },
-                                  { adios2::UnknownDim },
-                                  { adios2::UnknownDim });
-    }
-  }
-
   void Writer::defineSpectraOutputs(const std::vector<spidx_t>& specs) {
     m_spectra_writers.clear();
     for (const auto& s : specs) {

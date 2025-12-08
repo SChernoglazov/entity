@@ -17,6 +17,7 @@
 #include "archetypes/energy_dist.h"
 #include "archetypes/particle_injector.h"
 #include "framework/domain/domain.h"
+#include "framework/parameters.h"
 
 #include <utility>
 
@@ -51,29 +52,23 @@ namespace arch {
     const auto temperature_1 = temperatures.first / mass_1;
     const auto temperature_2 = temperatures.second / mass_2;
 
-    const auto maxwellian_1 = arch::experimental::Maxwellian<S, M>(
-      domain.mesh.metric,
-      domain.random_pool,
-      temperature_1,
-      drift_four_vels.first);
-    const auto maxwellian_2 = arch::experimental::Maxwellian<S, M>(
-      domain.mesh.metric,
-      domain.random_pool,
-      temperature_2,
-      drift_four_vels.second);
+    const auto maxwellian_1 = arch::Maxwellian<S, M>(domain.mesh.metric,
+                                                     domain.random_pool,
+                                                     temperature_1,
+                                                     drift_four_vels.first);
+    const auto maxwellian_2 = arch::Maxwellian<S, M>(domain.mesh.metric,
+                                                     domain.random_pool,
+                                                     temperature_2,
+                                                     drift_four_vels.second);
 
-    const auto injector = arch::experimental::
-      UniformInjector<S, M, arch::experimental::Maxwellian, arch::experimental::Maxwellian>(
-        maxwellian_1,
-        maxwellian_2,
-        species);
-
-    arch::experimental::InjectUniform<S, M, decltype(injector)>(params,
-                                                                domain,
-                                                                injector,
-                                                                tot_number_density,
-                                                                use_weights,
-                                                                box);
+    arch::InjectUniform<S, M, decltype(maxwellian_1), decltype(maxwellian_2)>(
+      params,
+      domain,
+      species,
+      { maxwellian_1, maxwellian_2 },
+      tot_number_density,
+      use_weights,
+      box);
   }
 
   /**

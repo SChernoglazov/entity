@@ -16,12 +16,12 @@
 #include "framework/containers/particles.h"
 #include "framework/domain/domain.h"
 #include "framework/domain/metadomain.h"
+#include "framework/specialization_registry.h"
 #include "framework/parameters.h"
 
 #include "kernels/divergences.hpp"
 #include "kernels/fields_to_phys.hpp"
 #include "kernels/particle_moments.hpp"
-#include "kernels/prtls_to_phys.hpp"
 
 #include <Kokkos_Core.hpp>
 #include <Kokkos_ScatterView.hpp>
@@ -92,7 +92,13 @@ namespace ntt {
     if constexpr (M::CoordType != Coord::Cart) {
       dim = Dim::_3D;
     }
-    g_writer.defineParticleOutputs(dim, species_to_write);
+    g_writer.clearSpeciesIndex();
+    for (const auto& s : species_to_write) {
+      g_writer.addSpeciesIndex(s);
+    }
+    for (const auto sp : g_writer.speciesIndices()) {
+      local_domain->species[sp - 1].OutputDeclare(g_writer.io());
+    }
 
     // spectra write all particle species
     std::vector<spidx_t> spectra_species {};
@@ -711,78 +717,14 @@ namespace ntt {
       g_writer.beginWriting(WriteMode::Particles, current_step, current_time);
       const auto prtl_stride = params.template get<npart_t>(
         "output.particles.stride");
-      for (const auto& prtl : g_writer.speciesWriters()) {
-        auto& species = local_domain->species[prtl.species() - 1];
-        if (not species.is_sorted()) {
-          species.RemoveDead();
-        }
-        const npart_t    nout = species.npart() / prtl_stride;
-        array_t<real_t*> buff_x1, buff_x2, buff_x3;
-        array_t<real_t*> buff_ux1 { "u1", nout };
-        array_t<real_t*> buff_ux2 { "ux2", nout };
-        array_t<real_t*> buff_ux3 { "ux3", nout };
-        array_t<real_t*> buff_wei { "w", nout };
-        if constexpr (M::Dim == Dim::_1D or M::Dim == Dim::_2D or
-                      M::Dim == Dim::_3D) {
-          buff_x1 = array_t<real_t*> { "x1", nout };
-        }
-        if constexpr (M::Dim == Dim::_2D or M::Dim == Dim::_3D) {
-          buff_x2 = array_t<real_t*> { "x2", nout };
-        }
-        if constexpr (M::Dim == Dim::_3D or
-                      ((D == Dim::_2D) and (M::CoordType != Coord::Cart))) {
-          buff_x3 = array_t<real_t*> { "x3", nout };
-        }
-        if (nout > 0) {
-          // clang-format off
-          Kokkos::parallel_for(
-            "PrtlToPhys",
-            nout,
-            kernel::PrtlToPhys_kernel<S, M>(prtl_stride,
-                                            buff_x1, buff_x2, buff_x3,
-                                            buff_ux1, buff_ux2, buff_ux3,
-                                            buff_wei,
-                                            species.i1, species.i2, species.i3,
-                                            species.dx1, species.dx2, species.dx3,
-                                            species.ux1, species.ux2, species.ux3,
-                                            species.phi, species.weight,
-                                            local_domain->mesh.metric));
-          // clang-format on
-        }
-        npart_t offset   = 0;
-        npart_t glob_tot = nout;
-#if defined(MPI_ENABLED)
-        auto glob_nout = std::vector<npart_t>(g_ndomains);
-        MPI_Allgather(&nout,
-                      1,
-                      mpi::get_type<npart_t>(),
-                      glob_nout.data(),
-                      1,
-                      mpi::get_type<npart_t>(),
-                      MPI_COMM_WORLD);
-        glob_tot = 0;
-        for (auto r = 0; r < g_mpi_size; ++r) {
-          if (r < g_mpi_rank) {
-            offset += glob_nout[r];
-          }
-          glob_tot += glob_nout[r];
-        }
-#endif // MPI_ENABLED
-        g_writer.writeParticleQuantity(buff_wei, glob_tot, offset, prtl.name("W", 0));
-        g_writer.writeParticleQuantity(buff_ux1, glob_tot, offset, prtl.name("U", 1));
-        g_writer.writeParticleQuantity(buff_ux2, glob_tot, offset, prtl.name("U", 2));
-        g_writer.writeParticleQuantity(buff_ux3, glob_tot, offset, prtl.name("U", 3));
-        if constexpr (M::Dim == Dim::_1D or M::Dim == Dim::_2D or
-                      M::Dim == Dim::_3D) {
-          g_writer.writeParticleQuantity(buff_x1, glob_tot, offset, prtl.name("X", 1));
-        }
-        if constexpr (M::Dim == Dim::_2D or M::Dim == Dim::_3D) {
-          g_writer.writeParticleQuantity(buff_x2, glob_tot, offset, prtl.name("X", 2));
-        }
-        if constexpr (M::Dim == Dim::_3D or
-                      ((D == Dim::_2D) and (M::CoordType != Coord::Cart))) {
-          g_writer.writeParticleQuantity(buff_x3, glob_tot, offset, prtl.name("X", 3));
-        }
+      for (const auto spec : g_writer.speciesIndices()) {
+        local_domain->species[spec - 1].template OutputWrite<S, M>(
+          g_writer.io(),
+          g_writer.writer(),
+          prtl_stride,
+          ndomains(),
+          local_domain->index(),
+          local_domain->mesh.metric);
       }
       g_writer.endWriting(WriteMode::Particles);
     } // end shouldWrite("particles", step, time)
@@ -858,40 +800,31 @@ namespace ntt {
     return true;
   }
 
-#define METADOMAIN_OUTPUT(S, M)                                                \
-  template void Metadomain<S, M>::InitWriter(adios2::ADIOS*,                   \
-                                             const SimulationParams&);         \
-  template auto Metadomain<S, M>::Write(                                       \
+#define METADOMAIN_OUTPUT(S, M, D)                                              \
+  template void Metadomain<S, M<D>>::InitWriter(adios2::ADIOS*,                \
+                                                const SimulationParams&);      \
+  template auto Metadomain<S, M<D>>::Write(                                    \
     const SimulationParams&,                                                   \
     timestep_t,                                                                \
     timestep_t,                                                                \
     simtime_t,                                                                 \
     simtime_t,                                                                 \
     std::function<void(const std::string&,                                     \
-                       ndfield_t<M::Dim, 6>&,                                  \
+                       ndfield_t<M<D>::Dim, 6>&,                               \
                        index_t,                                                \
                        timestep_t,                                             \
                        simtime_t,                                              \
-                       const Domain<S, M>&)>) -> bool;
+                       const Domain<S, M<D>>&)>)-> bool;
 
-  METADOMAIN_OUTPUT(SimEngine::SRPIC, metric::Minkowski<Dim::_1D>)
-  METADOMAIN_OUTPUT(SimEngine::SRPIC, metric::Minkowski<Dim::_2D>)
-  METADOMAIN_OUTPUT(SimEngine::SRPIC, metric::Minkowski<Dim::_3D>)
-  METADOMAIN_OUTPUT(SimEngine::SRPIC, metric::Spherical<Dim::_2D>)
-  METADOMAIN_OUTPUT(SimEngine::SRPIC, metric::QSpherical<Dim::_2D>)
-  METADOMAIN_OUTPUT(SimEngine::GRPIC, metric::KerrSchild<Dim::_2D>)
-  METADOMAIN_OUTPUT(SimEngine::GRPIC, metric::QKerrSchild<Dim::_2D>)
-  METADOMAIN_OUTPUT(SimEngine::GRPIC, metric::KerrSchild0<Dim::_2D>)
+  NTT_FOREACH_SPECIALIZATION(METADOMAIN_OUTPUT)
 
 #undef METADOMAIN_OUTPUT
 
 #if defined(MPI_ENABLED)
-  #define COMMVECTORPOTENTIAL(S, M)                                            \
-    template void Metadomain<S, M>::CommunicateVectorPotential(unsigned short);
+  #define COMMVECTORPOTENTIAL(S, M, D)                                          \
+    template void Metadomain<S, M<D>>::CommunicateVectorPotential(unsigned short);
 
-  COMMVECTORPOTENTIAL(SimEngine::GRPIC, metric::KerrSchild<Dim::_2D>)
-  COMMVECTORPOTENTIAL(SimEngine::GRPIC, metric::QKerrSchild<Dim::_2D>)
-  COMMVECTORPOTENTIAL(SimEngine::GRPIC, metric::KerrSchild0<Dim::_2D>)
+  NTT_FOREACH_SPECIALIZATION(COMMVECTORPOTENTIAL)
 
   #undef COMMVECTORPOTENTIAL
 #endif
