@@ -4,9 +4,9 @@
 #include "utils/diag.h"
 
 #include "framework/domain/domain.h"
+#include "framework/specialization_registry.h"
 
 #include "engines/engine.hpp"
-#include "framework/specialization_registry.h"
 
 namespace ntt {
 
@@ -137,8 +137,7 @@ namespace ntt {
     }
   }
 
-#define ENGINE_RUN(S, M, D)                                                     \
-  template void Engine<S, M<D>>::run();
+#define ENGINE_RUN(S, M, D) template void Engine<S, M<D>>::run();
 
   NTT_FOREACH_SPECIALIZATION(ENGINE_RUN)
 

@@ -6,8 +6,9 @@
 #include "utils/colors.h"
 #include "utils/formatting.h"
 
-#include "engines/engine.hpp"
 #include "framework/specialization_registry.h"
+
+#include "engines/engine.hpp"
 
 #if defined(CUDA_ENABLED)
   #include <cuda_runtime.h>
@@ -489,7 +490,7 @@ namespace ntt {
     }
   }
 
-#define ENGINE_PRINTER(S, M, D)                                                 \
+#define ENGINE_PRINTER(S, M, D)                                                \
   template void Engine<S, M<D>>::print_report() const;
 
   NTT_FOREACH_SPECIALIZATION(ENGINE_PRINTER)

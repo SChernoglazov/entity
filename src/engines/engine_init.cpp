@@ -4,9 +4,9 @@
 #include "arch/traits.h"
 
 #include "archetypes/field_setter.h"
+#include "framework/specialization_registry.h"
 
 #include "engines/engine.hpp"
-#include "framework/specialization_registry.h"
 
 #include <Kokkos_Core.hpp>
 
@@ -65,8 +65,7 @@ namespace ntt {
     print_report();
   }
 
-#define ENGINE_INIT(S, M, D)                                                    \
-  template class Engine<S, M<D>>;
+#define ENGINE_INIT(S, M, D) template class Engine<S, M<D>>;
 
   NTT_FOREACH_SPECIALIZATION(ENGINE_INIT)
 
