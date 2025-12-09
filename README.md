@@ -10,6 +10,16 @@ Our [detailed documentation](https://entity-toolkit.github.io/) includes everyth
 
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
+## News
+
+- [Dec 2025]: **high-order** shape functions [PR #109](https://github.com/entity-toolkit/entity/pull/109) and advanced field stencils [PR #103](https://github.com/entity-toolkit/entity/pull/103) are now supported.
+- [Dec 2025]: **particle tracking** is now fully supported via [PR #144](https://github.com/entity-toolkit/entity/pull/144).
+- [Nov 2025]: our **method papers** are online: [Special relativistic module](https://ui.adsabs.harvard.edu/abs/2025arXiv251117710H/abstract), [GR module](https://ui.adsabs.harvard.edu/abs/2025arXiv251117701G/abstract)!
+
+## Citation
+
+Please, see the [`CITATION`] document for the relevant BibTeX entries if you would like to cite one of the method papers for the code.
+
 ## Join the community
 
 Everyone is welcome to join our small yet steadily growing community of code users and developers; regardless of how much you are planning to contribute -- we always welcome fresh ideas and feedback. We hold weekly Slack calls on Mondays at 12pm NY time, and have a dedicated Slack channel where you can be easily added by emailing one of the maintainers (indicated with an asterisk in the list below). Anyone is welcome to join both our **Slack workspace** and the weekly meetings -- please feel free to request access by emailing.
@@ -43,3 +53,4 @@ Maintainers indicated with an arrow.
 - All `bug/` and `dev/` branches must have an open pull-request describing in detail its purpose.
 - Before merging to the master branch, all the branches must first be merged to the latest release-candidate branch, which ends with `rc`, via a pull request. This can either be a major release: `1.X.0rc`, or a patch release `1.X.Yrc`. 
 - Stale branches will be archived with a tag starting with `archive/` (can still be accessed via the "Tags" tab) and removed.
+
