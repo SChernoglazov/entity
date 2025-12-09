@@ -58,8 +58,14 @@ namespace out {
 
     auto data_h = Kokkos::create_mirror_view(data);
     Kokkos::deep_copy(data_h, data);
-    auto data_sub = Kokkos::subview(data_h, slice, range_tuple_t(0, dim2_size));
-    writer.Put(var, data_sub.data(), adios2::Mode::Sync);
+    if (!data_h.span_is_contiguous()) {
+      array_h_t<T**> data_contig_h { "data_contig_h", local_size, dim2_size };
+      Kokkos::deep_copy(data_contig_h, data_h);
+      writer.Put(var, data_contig_h.data(), adios2::Mode::Sync);
+    } else {
+      auto data_sub = Kokkos::subview(data_h, slice, range_tuple_t(0, dim2_size));
+      writer.Put(var, data_sub.data(), adios2::Mode::Sync);
+    }
   }
 
   template <Dimension D, int N>

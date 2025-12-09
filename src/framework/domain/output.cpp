@@ -6,18 +6,11 @@
 #include "utils/log.h"
 #include "utils/numeric.h"
 
-#include "metrics/kerr_schild.h"
-#include "metrics/kerr_schild_0.h"
-#include "metrics/minkowski.h"
-#include "metrics/qkerr_schild.h"
-#include "metrics/qspherical.h"
-#include "metrics/spherical.h"
-
 #include "framework/containers/particles.h"
 #include "framework/domain/domain.h"
 #include "framework/domain/metadomain.h"
-#include "framework/specialization_registry.h"
 #include "framework/parameters.h"
+#include "framework/specialization_registry.h"
 
 #include "kernels/divergences.hpp"
 #include "kernels/fields_to_phys.hpp"
@@ -800,7 +793,7 @@ namespace ntt {
     return true;
   }
 
-#define METADOMAIN_OUTPUT(S, M, D)                                              \
+#define METADOMAIN_OUTPUT(S, M, D)                                             \
   template void Metadomain<S, M<D>>::InitWriter(adios2::ADIOS*,                \
                                                 const SimulationParams&);      \
   template auto Metadomain<S, M<D>>::Write(                                    \
@@ -814,14 +807,14 @@ namespace ntt {
                        index_t,                                                \
                        timestep_t,                                             \
                        simtime_t,                                              \
-                       const Domain<S, M<D>>&)>)-> bool;
+                       const Domain<S, M<D>>&)>) -> bool;
 
   NTT_FOREACH_SPECIALIZATION(METADOMAIN_OUTPUT)
 
 #undef METADOMAIN_OUTPUT
 
 #if defined(MPI_ENABLED)
-  #define COMMVECTORPOTENTIAL(S, M, D)                                          \
+  #define COMMVECTORPOTENTIAL(S, M, D)                                         \
     template void Metadomain<S, M<D>>::CommunicateVectorPotential(unsigned short);
 
   NTT_FOREACH_SPECIALIZATION(COMMVECTORPOTENTIAL)
