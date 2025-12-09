@@ -18,7 +18,7 @@ Our [detailed documentation](https://entity-toolkit.github.io/) includes everyth
 
 ## Citation
 
-Please, see the [`CITATION`] document for the relevant BibTeX entries if you would like to cite one of the method papers for the code.
+Please, see the `CITATION` document for the relevant BibTeX entries if you would like to cite one of the method papers for the code.
 
 ## Join the community
 
