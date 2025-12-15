@@ -409,9 +409,9 @@ namespace ntt {
     }
     if (npld_i() > 0) {
       io.DefineVariable<npart_t>(fmt::format("s%d_pld_i", index()),
-                                 { adios2::UnknownDim, npld_i() },
-                                 { adios2::UnknownDim, 0 },
-                                 { adios2::UnknownDim, npld_i() });
+                                 { adios2::UnknownDim },
+                                 { adios2::UnknownDim },
+                                 { adios2::UnknownDim });
     }
   }
 
