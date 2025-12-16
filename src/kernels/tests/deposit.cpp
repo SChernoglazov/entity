@@ -139,8 +139,7 @@ void testDeposit(const std::vector<std::size_t>&      res,
   put_value<prtldx_t>(dx2_prev, dyi, 0);
   put_value<real_t>(ux1, ZERO, 0);
   put_value<real_t>(ux2, ZERO, 0);
-  put_value<real_t>(ux3, ZERO, 0);
-  put_value<prtldx_t>(ux3, uz, 0);
+  put_value<real_t>(ux3, uz, 0);
   put_value<real_t>(weight, 1.0, 0);
   put_value<short>(tag, ParticleTag::alive, 0);
 
