@@ -8,7 +8,7 @@
 #include "framework/specialization_registry.h"
 
 #include "pgen.hpp"
-
+ 
 #include <type_traits>
 
 template <ntt::SimEngine::type S, template <Dimension> class M, Dimension D>
