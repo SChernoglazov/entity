@@ -7,16 +7,9 @@
 #include "utils/formatting.h"
 #include "utils/log.h"
 
-#include "metrics/kerr_schild.h"
-#include "metrics/kerr_schild_0.h"
-#include "metrics/minkowski.h"
-#include "metrics/qkerr_schild.h"
-#include "metrics/qspherical.h"
-#include "metrics/spherical.h"
-
 #include "framework/domain/metadomain.h"
-#include "framework/specialization_registry.h"
 #include "framework/parameters.h"
+#include "framework/specialization_registry.h"
 
 namespace ntt {
 
@@ -164,18 +157,17 @@ namespace ntt {
       HERE);
   }
 
-#define METADOMAIN_CHECKPOINTS(S, M, D)                                         \
+#define METADOMAIN_CHECKPOINTS(S, M, D)                                        \
   template void Metadomain<S, M<D>>::InitCheckpointWriter(                     \
-    adios2::ADIOS*,                                                             \
-    const SimulationParams&);                                                   \
-  template auto Metadomain<S, M<D>>::WriteCheckpoint(                          \
-    const SimulationParams&,                                                    \
-    timestep_t,                                                                 \
-    timestep_t,                                                                 \
-    simtime_t,                                                                  \
-    simtime_t) -> bool;                                                         \
+    adios2::ADIOS*,                                                            \
+    const SimulationParams&);                                                  \
+  template auto Metadomain<S, M<D>>::WriteCheckpoint(const SimulationParams&,  \
+                                                     timestep_t,               \
+                                                     timestep_t,               \
+                                                     simtime_t,                \
+                                                     simtime_t) -> bool;       \
   template void Metadomain<S, M<D>>::ContinueFromCheckpoint(                   \
-    adios2::ADIOS*,                                                             \
+    adios2::ADIOS*,                                                            \
     const SimulationParams&);
   NTT_FOREACH_SPECIALIZATION(METADOMAIN_CHECKPOINTS)
 #undef METADOMAIN_CHECKPOINTS

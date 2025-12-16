@@ -3,12 +3,14 @@
 #include "enums.h"
 #include "global.h"
 
-#include "arch/mpi_aliases.h"
+#if defined(MPI_ENABLED)
+  #include "arch/mpi_aliases.h"
+#endif
+
 #include "utils/comparators.h"
 #include "utils/error.h"
 #include "utils/tools.h"
 
-#include "framework/domain/domain.h"
 #include "framework/domain/domain.h"
 #include "framework/specialization_registry.h"
 
@@ -530,8 +532,7 @@ namespace ntt {
     redefineBoundaries();
   }
 
-#define METADOMAIN_STRUCT(S, M, D)                                              \
-  template struct Metadomain<S, M<D>>;
+#define METADOMAIN_STRUCT(S, M, D) template struct Metadomain<S, M<D>>;
 
   NTT_FOREACH_SPECIALIZATION(METADOMAIN_STRUCT)
 

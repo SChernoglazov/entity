@@ -164,7 +164,7 @@ namespace kernel {
             energy = NORM(u_Phys[0], u_Phys[1], u_Phys[2]);
           } else {
             energy = mass *
-              math::sqrt(ONE + NORM_SQR(u_Phys[0], u_Phys[1], u_Phys[2]));
+                     math::sqrt(ONE + NORM_SQR(u_Phys[0], u_Phys[1], u_Phys[2]));
           }
         } else {
           // GR

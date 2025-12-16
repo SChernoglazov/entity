@@ -6,13 +6,6 @@
 #include "utils/formatting.h"
 #include "utils/log.h"
 
-#include "metrics/kerr_schild.h"
-#include "metrics/kerr_schild_0.h"
-#include "metrics/minkowski.h"
-#include "metrics/qkerr_schild.h"
-#include "metrics/qspherical.h"
-#include "metrics/spherical.h"
-
 #include "framework/domain/metadomain.h"
 #include "framework/specialization_registry.h"
 
@@ -677,12 +670,12 @@ namespace ntt {
     }
   }
 
-#define METADOMAIN_COMM(S, M, D)                                                \
-  template void Metadomain<S, M<D>>::CommunicateFields(Domain<S, M<D>>&, CommTags); \
-  template void Metadomain<S, M<D>>::SynchronizeFields(                        \
-    Domain<S, M<D>>&,                                                         \
-    CommTags,                                                                 \
-    const range_tuple_t&);                                                    \
+#define METADOMAIN_COMM(S, M, D)                                               \
+  template void Metadomain<S, M<D>>::CommunicateFields(Domain<S, M<D>>&,       \
+                                                       CommTags);              \
+  template void Metadomain<S, M<D>>::SynchronizeFields(Domain<S, M<D>>&,       \
+                                                       CommTags,               \
+                                                       const range_tuple_t&);  \
   template void Metadomain<S, M<D>>::CommunicateParticles(Domain<S, M<D>>&);   \
   template void Metadomain<S, M<D>>::RemoveDeadParticles(Domain<S, M<D>>&);
 

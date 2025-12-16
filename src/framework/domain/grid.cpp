@@ -1,6 +1,5 @@
 #include "framework/domain/grid.h"
 
-#include "enums.h"
 #include "global.h"
 
 #include "arch/kokkos_aliases.h"
