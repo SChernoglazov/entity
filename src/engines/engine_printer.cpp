@@ -6,12 +6,7 @@
 #include "utils/colors.h"
 #include "utils/formatting.h"
 
-#include "metrics/kerr_schild.h"
-#include "metrics/kerr_schild_0.h"
-#include "metrics/minkowski.h"
-#include "metrics/qkerr_schild.h"
-#include "metrics/qspherical.h"
-#include "metrics/spherical.h"
+#include "framework/specialization_registry.h"
 
 #include "engines/engine.hpp"
 
@@ -306,6 +301,12 @@ namespace ntt {
         add_param(report, 4, "Problem generator", "%s", pgen.c_str());
         add_param(report, 4, "Engine", "%s", SimEngine(S).to_string());
         add_param(report, 4, "Metric", "%s", Metric(M::MetricType).to_string());
+#if SHAPE_ORDER == 0
+        add_param(report, 4, "Deposit", "%s", "zigzag");
+#else
+        add_param(report, 4, "Deposit", "%s", "esirkepov");
+        add_param(report, 4, "Interpolation order", "%i", SHAPE_ORDER);
+#endif
         add_param(report, 4, "Timestep [dt]", "%.3e", dt);
         add_param(report, 4, "Runtime", "%.3e [%d steps]", runtime, max_steps);
         report += "\n";
@@ -400,7 +401,8 @@ namespace ntt {
             add_param(report, 6, "GCA", "%s", species.use_gca() ? "ON" : "OFF");
           }
           add_param(report, 6, "Cooling", "%s", species.cooling().to_string());
-          add_param(report, 6, "# of payloads", "%d", species.npld());
+          add_param(report, 6, "# of real-value payloads", "%d", species.npld_r());
+          add_param(report, 6, "# of integer-value payloads", "%d", species.npld_i());
         }
         report.pop_back();
       },
@@ -488,13 +490,11 @@ namespace ntt {
     }
   }
 
-  template void Engine<SimEngine::SRPIC, metric::Minkowski<Dim::_1D>>::print_report() const;
-  template void Engine<SimEngine::SRPIC, metric::Minkowski<Dim::_2D>>::print_report() const;
-  template void Engine<SimEngine::SRPIC, metric::Minkowski<Dim::_3D>>::print_report() const;
-  template void Engine<SimEngine::SRPIC, metric::Spherical<Dim::_2D>>::print_report() const;
-  template void Engine<SimEngine::SRPIC, metric::QSpherical<Dim::_2D>>::print_report() const;
-  template void Engine<SimEngine::GRPIC, metric::KerrSchild<Dim::_2D>>::print_report() const;
-  template void Engine<SimEngine::GRPIC, metric::KerrSchild0<Dim::_2D>>::print_report() const;
-  template void Engine<SimEngine::GRPIC, metric::QKerrSchild<Dim::_2D>>::print_report() const;
+#define ENGINE_PRINTER(S, M, D)                                                \
+  template void Engine<S, M<D>>::print_report() const;
+
+  NTT_FOREACH_SPECIALIZATION(ENGINE_PRINTER)
+
+#undef ENGINE_PRINTER
 
 } // namespace ntt

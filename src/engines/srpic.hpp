@@ -23,7 +23,9 @@
 #include "utils/timer.h"
 #include "utils/toml.h"
 
+#include "archetypes/energy_dist.h"
 #include "archetypes/particle_injector.h"
+#include "archetypes/spatial_dist.h"
 #include "framework/domain/domain.h"
 #include "framework/parameters.h"
 
@@ -76,9 +78,9 @@ namespace ntt {
 
     void step_forward(timer::Timers& timers, domain_t& dom) override {
       const auto fieldsolver_enabled = m_params.template get<bool>(
-        "algorithms.toggles.fieldsolver");
+        "algorithms.fieldsolver.enable");
       const auto deposit_enabled = m_params.template get<bool>(
-        "algorithms.toggles.deposit");
+        "algorithms.deposit.enable");
       const auto clear_interval = m_params.template get<std::size_t>(
         "particles.clear_interval");
 
@@ -185,7 +187,25 @@ namespace ntt {
       if constexpr (M::CoordType == Coord::Cart) {
         // minkowski case
         const auto dx = math::sqrt(domain.mesh.metric.template h_<1, 1>({}));
-        real_t     coeff1, coeff2;
+        const auto deltax = m_params.template get<real_t>(
+          "algorithms.fieldsolver.delta_x");
+        const auto deltay = m_params.template get<real_t>(
+          "algorithms.fieldsolver.delta_y");
+        const auto betaxy = m_params.template get<real_t>(
+          "algorithms.fieldsolver.beta_xy");
+        const auto betayx = m_params.template get<real_t>(
+          "algorithms.fieldsolver.beta_yx");
+        const auto deltaz = m_params.template get<real_t>(
+          "algorithms.fieldsolver.delta_z");
+        const auto betaxz = m_params.template get<real_t>(
+          "algorithms.fieldsolver.beta_xz");
+        const auto betazx = m_params.template get<real_t>(
+          "algorithms.fieldsolver.beta_zx");
+        const auto betayz = m_params.template get<real_t>(
+          "algorithms.fieldsolver.beta_yz");
+        const auto betazy = m_params.template get<real_t>(
+          "algorithms.fieldsolver.beta_zy");
+        real_t coeff1, coeff2;
         if constexpr (M::Dim == Dim::_2D) {
           coeff1 = dT / SQR(dx);
           coeff2 = dT;
@@ -193,10 +213,20 @@ namespace ntt {
           coeff1 = dT / dx;
           coeff2 = ZERO;
         }
-        Kokkos::parallel_for(
-          "Faraday",
-          domain.mesh.rangeActiveCells(),
-          kernel::mink::Faraday_kernel<M::Dim>(domain.fields.em, coeff1, coeff2));
+        Kokkos::parallel_for("Faraday",
+                             domain.mesh.rangeActiveCells(),
+                             kernel::mink::Faraday_kernel<M::Dim>(domain.fields.em,
+                                                                  coeff1,
+                                                                  coeff2,
+                                                                  deltax,
+                                                                  deltay,
+                                                                  betaxy,
+                                                                  betayx,
+                                                                  deltaz,
+                                                                  betaxz,
+                                                                  betazx,
+                                                                  betayz,
+                                                                  betazy));
       } else {
         Kokkos::parallel_for("Faraday",
                              domain.mesh.rangeActiveCells(),
@@ -318,6 +348,7 @@ namespace ntt {
                                              : ZERO;
         // cooling
         const auto has_synchrotron = (cooling == Cooling::SYNCHROTRON);
+        const auto has_compton     = (cooling == Cooling::COMPTON);
         const auto sync_grad       = has_synchrotron
                                        ? m_params.template get<real_t>(
                                      "algorithms.synchrotron.gamma_rad")
@@ -328,9 +359,16 @@ namespace ntt {
                                         "scales.omegaB0") /
                                       (SQR(sync_grad) * species.mass())
                                        : ZERO;
-
+        const auto comp_grad    = has_compton ? m_params.template get<real_t>(
+                                               "algorithms.compton.gamma_rad")
+                                              : ZERO;
+        const auto comp_coeff   = has_compton ? (real_t)(0.1) * dt *
+                                                m_params.template get<real_t>(
+                                                  "scales.omegaB0") /
+                                                (SQR(comp_grad) * species.mass())
+                                              : ZERO;
         // toggle to indicate whether pgen defines the external force
-        bool has_extforce = false;
+        bool       has_extforce = false;
         if constexpr (traits::has_member<traits::pgen::ext_force_t, pgen_t>::value) {
           has_extforce = true;
           // toggle to indicate whether the ext force applies to current species
@@ -345,6 +383,9 @@ namespace ntt {
         kernel::sr::CoolingTags cooling_tags = 0;
         if (cooling == Cooling::SYNCHROTRON) {
           cooling_tags = kernel::sr::Cooling::Synchrotron;
+        }
+        if (cooling == Cooling::COMPTON) {
+          cooling_tags = kernel::sr::Cooling::Compton;
         }
         // clang-format off
         if (not has_atmosphere and not has_extforce) {
@@ -368,7 +409,7 @@ namespace ntt {
                 domain.mesh.n_active(in::x2),
                 domain.mesh.n_active(in::x3),
                 domain.mesh.prtl_bc(),
-                gca_larmor_max, gca_eovrb_max, sync_coeff
+                gca_larmor_max, gca_eovrb_max, sync_coeff, comp_coeff
             ));
         } else if (has_atmosphere and not has_extforce) {
           const auto force =
@@ -398,7 +439,7 @@ namespace ntt {
                 domain.mesh.n_active(in::x2),
                 domain.mesh.n_active(in::x3),
                 domain.mesh.prtl_bc(),
-                gca_larmor_max, gca_eovrb_max, sync_coeff
+                gca_larmor_max, gca_eovrb_max, sync_coeff, comp_coeff
             ));
         } else if (not has_atmosphere and has_extforce) {
           if constexpr (traits::has_member<traits::pgen::ext_force_t, pgen_t>::value) {
@@ -427,7 +468,7 @@ namespace ntt {
                   domain.mesh.n_active(in::x2),
                   domain.mesh.n_active(in::x3),
                   domain.mesh.prtl_bc(),
-                  gca_larmor_max, gca_eovrb_max, sync_coeff
+                  gca_larmor_max, gca_eovrb_max, sync_coeff, comp_coeff
               ));
           } else {
             raise::Error("External force not implemented", HERE);
@@ -459,7 +500,7 @@ namespace ntt {
                   domain.mesh.n_active(in::x2),
                   domain.mesh.n_active(in::x3),
                   domain.mesh.prtl_bc(),
-                  gca_larmor_max, gca_eovrb_max, sync_coeff
+                  gca_larmor_max, gca_eovrb_max, sync_coeff, comp_coeff
               ));
           } else {
             raise::Error("External force not implemented", HERE);
@@ -477,9 +518,30 @@ namespace ntt {
       }
     }
 
+    template <unsigned short O>
+    void deposit_with(const Particles<M::Dim, M::CoordType>& species,
+                      const M&                               metric,
+                      const scatter_ndfield_t<M::Dim, 3>&    scatter_cur,
+                      real_t                                 dt) {
+      // clang-format off
+      Kokkos::parallel_for("CurrentsDeposit",
+                          species.rangeActiveParticles(),
+                          kernel::DepositCurrents_kernel<SimEngine::SRPIC, M, O>(
+                            scatter_cur,
+                            species.i1, species.i2, species.i3,
+                            species.i1_prev, species.i2_prev, species.i3_prev,
+                            species.dx1, species.dx2, species.dx3,
+                            species.dx1_prev, species.dx2_prev, species.dx3_prev,
+                            species.ux1, species.ux2, species.ux3,
+                            species.phi, species.weight, species.tag,
+                            metric, (real_t)(species.charge()), dt));
+      // clang-format on
+    }
+
     void CurrentsDeposit(domain_t& domain) {
       auto scatter_cur = Kokkos::Experimental::create_scatter_view(
         domain.fields.cur);
+      auto shape_order = m_params.template get<int>("algorithms.deposit.order");
       for (auto& species : domain.species) {
         if ((species.pusher() == PrtlPusher::NONE) or (species.npart() == 0) or
             cmp::AlmostZero_host(species.charge())) {
@@ -492,20 +554,8 @@ namespace ntt {
                       species.npart(),
                       (double)species.charge()),
           HERE);
-        // clang-format off
-        Kokkos::parallel_for("CurrentsDeposit",
-                             species.rangeActiveParticles(),
-                             kernel::DepositCurrents_kernel<SimEngine::SRPIC, M>(
-                               scatter_cur,
-                               species.i1, species.i2, species.i3,
-                               species.i1_prev, species.i2_prev, species.i3_prev,
-                               species.dx1, species.dx2, species.dx3,
-                               species.dx1_prev, species.dx2_prev, species.dx3_prev,
-                               species.ux1, species.ux2, species.ux3,
-                               species.phi, species.weight, species.tag,
-                               domain.mesh.metric,
-                               (real_t)(species.charge()), dt));
-        // clang-format on
+
+        deposit_with<SHAPE_ORDER>(species, domain.mesh.metric, scatter_cur, dt);
       }
       Kokkos::Experimental::contribute(domain.fields.cur, scatter_cur);
     }
@@ -1240,119 +1290,153 @@ namespace ntt {
         m_metadomain.SynchronizeFields(domain, Comm::Bckp, { 0, 1 });
       }
 
+      const auto maxwellian = arch::Maxwellian<S, M> { domain.mesh.metric,
+                                                       domain.random_pool,
+                                                       temp };
+
       if (dim == in::x1) {
         if (sign > 0) {
-          const auto atm_injector =
-            arch::AtmosphereInjector<SimEngine::SRPIC, M, true, in::x1> {
-              domain.mesh.metric,
-              domain.fields.bckp,
+          auto target_density =
+            arch::AtmosphereDensityProfile<M::Dim, M::CoordType, true, in::x1> {
               nmax,
               height,
               x_surf,
-              ds,
-              temp,
-              domain.random_pool,
-              species
+              ds
             };
-          arch::InjectNonUniform<S, M, decltype(atm_injector)>(m_params,
-                                                               domain,
-                                                               atm_injector,
-                                                               nmax,
-                                                               use_weights);
+          const auto spatial_dist = arch::Replenish<S, M, 6, decltype(target_density)> {
+            domain.mesh.metric,
+            domain.fields.bckp,
+            0,
+            target_density,
+            nmax
+          };
+          arch::InjectNonUniform<S, M, decltype(maxwellian), decltype(maxwellian), decltype(spatial_dist)>(
+            m_params,
+            domain,
+            { species.first, species.second },
+            { maxwellian, maxwellian },
+            spatial_dist,
+            nmax,
+            use_weights);
         } else {
-          const auto atm_injector =
-            arch::AtmosphereInjector<SimEngine::SRPIC, M, false, in::x1> {
-              domain.mesh.metric,
-              domain.fields.bckp,
+          auto target_density =
+            arch::AtmosphereDensityProfile<M::Dim, M::CoordType, false, in::x1> {
               nmax,
               height,
               x_surf,
-              ds,
-              temp,
-              domain.random_pool,
-              species
+              ds
             };
-          arch::InjectNonUniform<S, M, decltype(atm_injector)>(m_params,
-                                                               domain,
-                                                               atm_injector,
-                                                               nmax,
-                                                               use_weights);
+          const auto spatial_dist = arch::Replenish<S, M, 6, decltype(target_density)> {
+            domain.mesh.metric,
+            domain.fields.bckp,
+            0,
+            target_density,
+            nmax
+          };
+          arch::InjectNonUniform<S, M, decltype(maxwellian), decltype(maxwellian), decltype(spatial_dist)>(
+            m_params,
+            domain,
+            { species.first, species.second },
+            { maxwellian, maxwellian },
+            spatial_dist,
+            nmax,
+            use_weights);
         }
       } else if (dim == in::x2) {
         if (sign > 0) {
-          const auto atm_injector =
-            arch::AtmosphereInjector<SimEngine::SRPIC, M, true, in::x2> {
-              domain.mesh.metric,
-              domain.fields.bckp,
+          auto target_density =
+            arch::AtmosphereDensityProfile<M::Dim, M::CoordType, true, in::x2> {
               nmax,
               height,
               x_surf,
-              ds,
-              temp,
-              domain.random_pool,
-              species
+              ds
             };
-          arch::InjectNonUniform<S, M, decltype(atm_injector)>(m_params,
-                                                               domain,
-                                                               atm_injector,
-                                                               nmax,
-                                                               use_weights);
+          const auto spatial_dist = arch::Replenish<S, M, 6, decltype(target_density)> {
+            domain.mesh.metric,
+            domain.fields.bckp,
+            0,
+            target_density,
+            nmax
+          };
+          arch::InjectNonUniform<S, M, decltype(maxwellian), decltype(maxwellian), decltype(spatial_dist)>(
+            m_params,
+            domain,
+            { species.first, species.second },
+            { maxwellian, maxwellian },
+            spatial_dist,
+            nmax,
+            use_weights);
         } else {
-          const auto atm_injector =
-            arch::AtmosphereInjector<SimEngine::SRPIC, M, false, in::x2> {
-              domain.mesh.metric,
-              domain.fields.bckp,
+          auto target_density =
+            arch::AtmosphereDensityProfile<M::Dim, M::CoordType, false, in::x2> {
               nmax,
               height,
               x_surf,
-              ds,
-              temp,
-              domain.random_pool,
-              species
+              ds
             };
-          arch::InjectNonUniform<S, M, decltype(atm_injector)>(m_params,
-                                                               domain,
-                                                               atm_injector,
-                                                               nmax,
-                                                               use_weights);
+          const auto spatial_dist = arch::Replenish<S, M, 6, decltype(target_density)> {
+            domain.mesh.metric,
+            domain.fields.bckp,
+            0,
+            target_density,
+            nmax
+          };
+          arch::InjectNonUniform<S, M, decltype(maxwellian), decltype(maxwellian), decltype(spatial_dist)>(
+            m_params,
+            domain,
+            { species.first, species.second },
+            { maxwellian, maxwellian },
+            spatial_dist,
+            nmax,
+            use_weights);
         }
       } else if (dim == in::x3) {
         if (sign > 0) {
-          const auto atm_injector =
-            arch::AtmosphereInjector<SimEngine::SRPIC, M, true, in::x3> {
-              domain.mesh.metric,
-              domain.fields.bckp,
+          auto target_density =
+            arch::AtmosphereDensityProfile<M::Dim, M::CoordType, true, in::x3> {
               nmax,
               height,
               x_surf,
-              ds,
-              temp,
-              domain.random_pool,
-              species
+              ds
             };
-          arch::InjectNonUniform<S, M, decltype(atm_injector)>(m_params,
-                                                               domain,
-                                                               atm_injector,
-                                                               nmax,
-                                                               use_weights);
+          const auto spatial_dist = arch::Replenish<S, M, 6, decltype(target_density)> {
+            domain.mesh.metric,
+            domain.fields.bckp,
+            0,
+            target_density,
+            nmax
+          };
+          arch::InjectNonUniform<S, M, decltype(maxwellian), decltype(maxwellian), decltype(spatial_dist)>(
+            m_params,
+            domain,
+            { species.first, species.second },
+            { maxwellian, maxwellian },
+            spatial_dist,
+            nmax,
+            use_weights);
         } else {
-          const auto atm_injector =
-            arch::AtmosphereInjector<SimEngine::SRPIC, M, false, in::x3> {
-              domain.mesh.metric,
-              domain.fields.bckp,
+          auto target_density =
+            arch::AtmosphereDensityProfile<M::Dim, M::CoordType, false, in::x3> {
               nmax,
               height,
               x_surf,
-              ds,
-              temp,
-              domain.random_pool,
-              species
+              ds
             };
-          arch::InjectNonUniform<S, M, decltype(atm_injector)>(m_params,
-                                                               domain,
-                                                               atm_injector,
-                                                               nmax,
-                                                               use_weights);
+          const auto spatial_dist = arch::Replenish<S, M, 6, decltype(target_density)> {
+            domain.mesh.metric,
+            domain.fields.bckp,
+            0,
+            target_density,
+            nmax
+          };
+          arch::InjectNonUniform<S, M, decltype(maxwellian), decltype(maxwellian), decltype(spatial_dist)>(
+            m_params,
+            domain,
+            { species.first, species.second },
+            { maxwellian, maxwellian },
+            spatial_dist,
+            nmax,
+            use_weights);
         }
       } else {
         raise::Error("Invalid dimension", HERE);

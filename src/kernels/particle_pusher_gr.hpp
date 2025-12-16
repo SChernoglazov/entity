@@ -111,8 +111,8 @@ namespace kernel::gr {
                   int                         ni1,
                   int                         ni2,
                   int                         ni3,
-                  const real_t&               epsilon,
-                  const unsigned short&       niter,
+                  real_t                      epsilon,
+                  unsigned short              niter,
                   const boundaries_t<PrtlBC>& boundaries)
       : DB { DB }
       , DB0 { DB0 }
@@ -213,7 +213,7 @@ namespace kernel::gr {
     Inline void UpdatePhi(T,
                           const coord_t<D>&      xp,
                           const vec_t<Dim::_3D>& vp,
-                          real_t&                phi) const;
+                          real_t                 phi) const;
 
     /**
      * @brief EM pusher (Boris) substep.
@@ -273,7 +273,7 @@ namespace kernel::gr {
      * @param e interpolated e-field vector of size 3 [return].
      * @param b interpolated b-field vector of size 3 [return].
      */
-    Inline void interpolateFields(index_t&         p,
+    Inline void interpolateFields(index_t          p,
                                   vec_t<Dim::_3D>& e,
                                   vec_t<Dim::_3D>& b) const;
 
@@ -298,7 +298,7 @@ namespace kernel::gr {
     }
 
     // Extra
-    Inline void boundaryConditions(index_t&) const;
+    Inline void boundaryConditions(index_t) const;
   };
 
   /* -------------------------------------------------------------------------- */
@@ -492,7 +492,7 @@ namespace kernel::gr {
   Inline void Pusher_kernel<M>::UpdatePhi(T,
                                           const coord_t<D>&      xp,
                                           const vec_t<Dim::_3D>& vp,
-                                          real_t&                phi) const {
+                                          real_t                 phi) const {
     if constexpr (D == Dim::_1D) {
       raise::KernelError(HERE, "UpdatePhi: 1D implementation called");
     } else if constexpr (D == Dim::_2D) {
@@ -511,7 +511,7 @@ namespace kernel::gr {
   }
 
   template <class M>
-  Inline void Pusher_kernel<M>::interpolateFields(index_t&         p,
+  Inline void Pusher_kernel<M>::interpolateFields(index_t          p,
                                                   vec_t<Dim::_3D>& e0,
                                                   vec_t<Dim::_3D>& b0) const {
     if constexpr (D == Dim::_1D) {
@@ -743,7 +743,7 @@ namespace kernel::gr {
   // Boundary conditions
 
   template <class M>
-  Inline void Pusher_kernel<M>::boundaryConditions(index_t& p) const {
+  Inline void Pusher_kernel<M>::boundaryConditions(index_t p) const {
     if constexpr (D == Dim::_1D || D == Dim::_2D || D == Dim::_3D) {
       if (i1(p) < 0 && is_absorb_i1min) {
         tag(p) = ParticleTag::dead;

@@ -22,6 +22,8 @@
 #include "utils/error.h"
 #include "utils/numeric.h"
 
+#include "particle_shapes.hpp"
+
 #if defined(MPI_ENABLED)
   #include "arch/mpi_tags.h"
 #endif
@@ -49,6 +51,7 @@ namespace kernel::sr {
     enum CoolingTags_ {
       None        = 0,
       Synchrotron = 1 << 0,
+      Compton     = 1 << 1,
     };
   } // namespace Cooling
 
@@ -102,8 +105,8 @@ namespace kernel::sr {
       raise::ErrorIf(ExtForce, "External force not provided", HERE);
     }
 
-    Inline auto fx1(const spidx_t&    sp,
-                    const simtime_t&  time,
+    Inline auto fx1(spidx_t           sp,
+                    simtime_t         time,
                     bool              ext_force,
                     const coord_t<D>& x_Ph) const -> real_t {
       real_t f_x1 = ZERO;
@@ -128,8 +131,8 @@ namespace kernel::sr {
       return f_x1;
     }
 
-    Inline auto fx2(const spidx_t&    sp,
-                    const simtime_t&  time,
+    Inline auto fx2(spidx_t           sp,
+                    simtime_t         time,
                     bool              ext_force,
                     const coord_t<D>& x_Ph) const -> real_t {
       real_t f_x2 = ZERO;
@@ -154,8 +157,8 @@ namespace kernel::sr {
       return f_x2;
     }
 
-    Inline auto fx3(const spidx_t&    sp,
-                    const simtime_t&  time,
+    Inline auto fx3(spidx_t           sp,
+                    simtime_t         time,
                     bool              ext_force,
                     const coord_t<D>& x_Ph) const -> real_t {
       real_t f_x3 = ZERO;
@@ -223,8 +226,8 @@ namespace kernel::sr {
     bool         is_axis_i2min { false }, is_axis_i2max { false };
     // gca parameters
     const real_t gca_larmor, gca_EovrB_sqr;
-    // synchrotron cooling parameters
-    const real_t coeff_sync;
+    // radiative cooling parameters
+    const real_t coeff_sync, coeff_comp;
 
   public:
     Pusher_kernel(const PrtlPusher::type&        pusher,
@@ -261,7 +264,8 @@ namespace kernel::sr {
                   const boundaries_t<PrtlBC>&    boundaries,
                   real_t                         gca_larmor_max,
                   real_t                         gca_eovrb_max,
-                  real_t                         coeff_sync)
+                  real_t                         coeff_sync,
+                  real_t                         coeff_comp)
       : pusher { pusher }
       , GCA { GCA }
       , ext_force { ext_force }
@@ -295,7 +299,8 @@ namespace kernel::sr {
       , ni3 { ni3 }
       , gca_larmor { gca_larmor_max }
       , gca_EovrB_sqr { SQR(gca_eovrb_max) }
-      , coeff_sync { coeff_sync } {
+      , coeff_sync { coeff_sync }
+      , coeff_comp { coeff_comp } {
       raise::ErrorIf(boundaries.size() < 1, "boundaries defined incorrectly", HERE);
       is_absorb_i1min = (boundaries[0].first == PrtlBC::ATMOSPHERE) ||
                         (boundaries[0].first == PrtlBC::ABSORB);
@@ -364,7 +369,8 @@ namespace kernel::sr {
                   const boundaries_t<PrtlBC>& boundaries,
                   real_t                      gca_larmor_max,
                   real_t                      gca_eovrb_max,
-                  real_t                      coeff_sync)
+                  real_t                      coeff_sync,
+                  real_t                      coeff_comp)
       : Pusher_kernel(pusher,
                       GCA,
                       ext_force,
@@ -399,9 +405,10 @@ namespace kernel::sr {
                       boundaries,
                       gca_larmor_max,
                       gca_eovrb_max,
-                      coeff_sync) {}
+                      coeff_sync,
+                      coeff_comp) {}
 
-    Inline void synchrotronDrag(index_t&               p,
+    Inline void synchrotronDrag(index_t                p,
                                 vec_t<Dim::_3D>&       u_prime,
                                 const vec_t<Dim::_3D>& e0,
                                 const vec_t<Dim::_3D>& b0) const {
@@ -452,6 +459,20 @@ namespace kernel::sr {
       ux3(p) += coeff_sync * (kappaR[2] - gamma_prime_sqr * u_prime[2] * chiR_sqr);
     }
 
+    Inline void inverseComptonDrag(index_t p, vec_t<Dim::_3D>& u_prime) const {
+      real_t gamma_prime_sqr  = ONE / math::sqrt(ONE + NORM_SQR(u_prime[0],
+                                                               u_prime[1],
+                                                               u_prime[2]));
+      u_prime[0]             *= gamma_prime_sqr;
+      u_prime[1]             *= gamma_prime_sqr;
+      u_prime[2]             *= gamma_prime_sqr;
+      gamma_prime_sqr         = SQR(ONE / gamma_prime_sqr);
+
+      ux1(p) -= coeff_comp * gamma_prime_sqr * u_prime[0];
+      ux2(p) -= coeff_comp * gamma_prime_sqr * u_prime[1];
+      ux3(p) -= coeff_comp * gamma_prime_sqr * u_prime[2];
+    }
+
     Inline void operator()(index_t p) const {
       if (tag(p) != ParticleTag::alive) {
         if (tag(p) != ParticleTag::dead) {
@@ -473,7 +494,9 @@ namespace kernel::sr {
       vec_t<Dim::_3D> ei_Cart_rad { ZERO }, bi_Cart_rad { ZERO };
       bool            is_gca { false };
 
-      getInterpFlds(p, ei, bi);
+      // field interpolation 0th-11th order
+      getInterpFlds<SHAPE_ORDER>(p, ei, bi);
+
       metric.template transform_xyz<Idx::U, Idx::XYZ>(xp_Cd, ei, ei_Cart);
       metric.template transform_xyz<Idx::U, Idx::XYZ>(xp_Cd, bi, bi_Cart);
       if (cooling != 0) {
@@ -556,11 +579,19 @@ namespace kernel::sr {
           synchrotronDrag(p, u_prime, ei_Cart_rad, bi_Cart_rad);
         }
       }
+      if (cooling & Cooling::Compton) {
+        if (!is_gca) {
+          u_prime[0] = HALF * (u_prime[0] + ux1(p));
+          u_prime[1] = HALF * (u_prime[1] + ux2(p));
+          u_prime[2] = HALF * (u_prime[2] + ux3(p));
+          inverseComptonDrag(p, u_prime);
+        }
+      }
       // update position
       posUpd(true, p, xp_Cd);
     }
 
-    Inline void posUpd(bool massive, index_t& p, coord_t<M::PrtlDim>& xp) const {
+    Inline void posUpd(bool massive, index_t p, coord_t<M::PrtlDim>& xp) const {
       // get cartesian velocity
       if constexpr (M::CoordType == Coord::Cart) {
         // i+di push for Cartesian basis
@@ -651,7 +682,7 @@ namespace kernel::sr {
      * @param p, e0, b0 index & interpolated fields
      */
     Inline void velUpd(bool             with_gca,
-                       index_t&         p,
+                       index_t          p,
                        vec_t<Dim::_3D>& e0,
                        vec_t<Dim::_3D>& b0) const {
       if (with_gca) {
@@ -766,7 +797,7 @@ namespace kernel::sr {
     }
 
     Inline void velUpd(bool,
-                       index_t&         p,
+                       index_t          p,
                        vec_t<Dim::_3D>& f0,
                        vec_t<Dim::_3D>& e0,
                        vec_t<Dim::_3D>& b0) const {
@@ -808,7 +839,7 @@ namespace kernel::sr {
     }
 
     // Getters
-    Inline void getPrtlPos(index_t& p, coord_t<M::PrtlDim>& xp) const {
+    Inline void getPrtlPos(index_t p, coord_t<M::PrtlDim>& xp) const {
       if constexpr (D == Dim::_1D || D == Dim::_2D || D == Dim::_3D) {
         xp[0] = i_di_to_Xi(i1(p), dx1(p));
       }
@@ -824,271 +855,529 @@ namespace kernel::sr {
       }
     }
 
-    Inline void getInterpFlds(index_t&         p,
+    template <unsigned short O>
+    Inline void getInterpFlds(index_t          p,
                               vec_t<Dim::_3D>& e0,
                               vec_t<Dim::_3D>& b0) const {
-      if constexpr (D == Dim::_1D) {
-        const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
-        const auto dx1_ { static_cast<real_t>(dx1(p)) };
 
-        // first order
-        real_t c0, c1;
+      // Zig-zag interpolation
+      if constexpr (O == 0u) {
 
-        // Ex1
-        // interpolate to nodes
-        c0    = HALF * (EB(i, em::ex1) + EB(i - 1, em::ex1));
-        c1    = HALF * (EB(i, em::ex1) + EB(i + 1, em::ex1));
-        // interpolate from nodes to the particle position
-        e0[0] = c0 * (ONE - dx1_) + c1 * dx1_;
-        // Ex2
-        c0    = EB(i, em::ex2);
-        c1    = EB(i + 1, em::ex2);
-        e0[1] = c0 * (ONE - dx1_) + c1 * dx1_;
-        // Ex3
-        c0    = EB(i, em::ex3);
-        c1    = EB(i + 1, em::ex3);
-        e0[2] = c0 * (ONE - dx1_) + c1 * dx1_;
+        if constexpr (D == Dim::_1D) {
+          const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
+          const auto dx1_ { static_cast<real_t>(dx1(p)) };
 
-        // Bx1
-        c0    = EB(i, em::bx1);
-        c1    = EB(i + 1, em::bx1);
-        b0[0] = c0 * (ONE - dx1_) + c1 * dx1_;
-        // Bx2
-        c0    = HALF * (EB(i - 1, em::bx2) + EB(i, em::bx2));
-        c1    = HALF * (EB(i, em::bx2) + EB(i + 1, em::bx2));
-        b0[1] = c0 * (ONE - dx1_) + c1 * dx1_;
-        // Bx3
-        c0    = HALF * (EB(i - 1, em::bx3) + EB(i, em::bx3));
-        c1    = HALF * (EB(i, em::bx3) + EB(i + 1, em::bx3));
-        b0[2] = c0 * (ONE - dx1_) + c1 * dx1_;
-      } else if constexpr (D == Dim::_2D) {
-        const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
-        const int  j { i2(p) + static_cast<int>(N_GHOSTS) };
-        const auto dx1_ { static_cast<real_t>(dx1(p)) };
-        const auto dx2_ { static_cast<real_t>(dx2(p)) };
+          // direct interpolation - Arno
+          int indx = static_cast<int>(dx1_ + HALF);
 
-        // first order
-        real_t c000, c100, c010, c110, c00, c10;
+          // first order
+          real_t c0, c1;
 
-        // Ex1
-        // interpolate to nodes
-        c000  = HALF * (EB(i, j, em::ex1) + EB(i - 1, j, em::ex1));
-        c100  = HALF * (EB(i, j, em::ex1) + EB(i + 1, j, em::ex1));
-        c010  = HALF * (EB(i, j + 1, em::ex1) + EB(i - 1, j + 1, em::ex1));
-        c110  = HALF * (EB(i, j + 1, em::ex1) + EB(i + 1, j + 1, em::ex1));
-        // interpolate from nodes to the particle position
-        c00   = c000 * (ONE - dx1_) + c100 * dx1_;
-        c10   = c010 * (ONE - dx1_) + c110 * dx1_;
-        e0[0] = c00 * (ONE - dx2_) + c10 * dx2_;
-        // Ex2
-        c000  = HALF * (EB(i, j, em::ex2) + EB(i, j - 1, em::ex2));
-        c100  = HALF * (EB(i + 1, j, em::ex2) + EB(i + 1, j - 1, em::ex2));
-        c010  = HALF * (EB(i, j, em::ex2) + EB(i, j + 1, em::ex2));
-        c110  = HALF * (EB(i + 1, j, em::ex2) + EB(i + 1, j + 1, em::ex2));
-        c00   = c000 * (ONE - dx1_) + c100 * dx1_;
-        c10   = c010 * (ONE - dx1_) + c110 * dx1_;
-        e0[1] = c00 * (ONE - dx2_) + c10 * dx2_;
-        // Ex3
-        c000  = EB(i, j, em::ex3);
-        c100  = EB(i + 1, j, em::ex3);
-        c010  = EB(i, j + 1, em::ex3);
-        c110  = EB(i + 1, j + 1, em::ex3);
-        c00   = c000 * (ONE - dx1_) + c100 * dx1_;
-        c10   = c010 * (ONE - dx1_) + c110 * dx1_;
-        e0[2] = c00 * (ONE - dx2_) + c10 * dx2_;
+          real_t ponpmx = ONE - dx1_;
+          real_t ponppx = dx1_;
 
-        // Bx1
-        c000  = HALF * (EB(i, j, em::bx1) + EB(i, j - 1, em::bx1));
-        c100  = HALF * (EB(i + 1, j, em::bx1) + EB(i + 1, j - 1, em::bx1));
-        c010  = HALF * (EB(i, j, em::bx1) + EB(i, j + 1, em::bx1));
-        c110  = HALF * (EB(i + 1, j, em::bx1) + EB(i + 1, j + 1, em::bx1));
-        c00   = c000 * (ONE - dx1_) + c100 * dx1_;
-        c10   = c010 * (ONE - dx1_) + c110 * dx1_;
-        b0[0] = c00 * (ONE - dx2_) + c10 * dx2_;
-        // Bx2
-        c000  = HALF * (EB(i - 1, j, em::bx2) + EB(i, j, em::bx2));
-        c100  = HALF * (EB(i, j, em::bx2) + EB(i + 1, j, em::bx2));
-        c010  = HALF * (EB(i - 1, j + 1, em::bx2) + EB(i, j + 1, em::bx2));
-        c110  = HALF * (EB(i, j + 1, em::bx2) + EB(i + 1, j + 1, em::bx2));
-        c00   = c000 * (ONE - dx1_) + c100 * dx1_;
-        c10   = c010 * (ONE - dx1_) + c110 * dx1_;
-        b0[1] = c00 * (ONE - dx2_) + c10 * dx2_;
-        // Bx3
-        c000  = INV_4 * (EB(i - 1, j - 1, em::bx3) + EB(i - 1, j, em::bx3) +
-                        EB(i, j - 1, em::bx3) + EB(i, j, em::bx3));
-        c100  = INV_4 * (EB(i, j - 1, em::bx3) + EB(i, j, em::bx3) +
-                        EB(i + 1, j - 1, em::bx3) + EB(i + 1, j, em::bx3));
-        c010  = INV_4 * (EB(i - 1, j, em::bx3) + EB(i - 1, j + 1, em::bx3) +
-                        EB(i, j, em::bx3) + EB(i, j + 1, em::bx3));
-        c110  = INV_4 * (EB(i, j, em::bx3) + EB(i, j + 1, em::bx3) +
-                        EB(i + 1, j, em::bx3) + EB(i + 1, j + 1, em::bx3));
-        c00   = c000 * (ONE - dx1_) + c100 * dx1_;
-        c10   = c010 * (ONE - dx1_) + c110 * dx1_;
-        b0[2] = c00 * (ONE - dx2_) + c10 * dx2_;
-      } else if constexpr (D == Dim::_3D) {
-        const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
-        const int  j { i2(p) + static_cast<int>(N_GHOSTS) };
-        const int  k { i3(p) + static_cast<int>(N_GHOSTS) };
-        const auto dx1_ { static_cast<real_t>(dx1(p)) };
-        const auto dx2_ { static_cast<real_t>(dx2(p)) };
-        const auto dx3_ { static_cast<real_t>(dx3(p)) };
+          real_t pondmx = static_cast<real_t>(indx + ONE) - (dx1_ + HALF);
+          real_t pondpx = ONE - pondmx;
 
-        // first order
-        real_t c000, c100, c010, c110, c001, c101, c011, c111, c00, c10, c01,
-          c11, c0, c1;
+          // Ex1
+          // Interpolate --- (dual)
+          c0    = EB(i - 1 + indx, em::ex1);
+          c1    = EB(i + indx, em::ex1);
+          e0[0] = c0 * pondmx + c1 * pondpx;
+          // Ex2
+          // Interpolate --- (primal)
+          c0    = EB(i, em::ex2);
+          c1    = EB(i + 1, em::ex2);
+          e0[1] = c0 * ponpmx + c1 * ponppx;
+          // Ex3
+          // Interpolate --- (primal)
+          c0    = EB(i, em::ex3);
+          c1    = EB(i + 1, em::ex3);
+          e0[2] = c0 * ponpmx + c1 * ponppx;
+          // Bx1
+          // Interpolate --- (primal)
+          c0    = EB(i, em::bx1);
+          c1    = EB(i + 1, em::bx1);
+          b0[0] = c0 * ponpmx + c1 * ponppx;
+          // Bx2
+          // Interpolate --- (dual)
+          c0    = EB(i - 1 + indx, em::bx2);
+          c1    = EB(i + indx, em::bx2);
+          b0[1] = c0 * pondmx + c1 * pondpx;
+          // Bx3
+          // Interpolate --- (dual)
+          c0    = EB(i - 1 + indx, em::bx3);
+          c1    = EB(i + indx, em::bx3);
+          b0[2] = c0 * pondmx + c1 * pondpx;
+        } else if constexpr (D == Dim::_2D) {
+          const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
+          const int  j { i2(p) + static_cast<int>(N_GHOSTS) };
+          const auto dx1_ { static_cast<real_t>(dx1(p)) };
+          const auto dx2_ { static_cast<real_t>(dx2(p)) };
 
-        // Ex1
-        // interpolate to nodes
-        c000 = HALF * (EB(i, j, k, em::ex1) + EB(i - 1, j, k, em::ex1));
-        c100 = HALF * (EB(i, j, k, em::ex1) + EB(i + 1, j, k, em::ex1));
-        c010 = HALF * (EB(i, j + 1, k, em::ex1) + EB(i - 1, j + 1, k, em::ex1));
-        c110 = HALF * (EB(i, j + 1, k, em::ex1) + EB(i + 1, j + 1, k, em::ex1));
-        // interpolate from nodes to the particle position
-        c00  = c000 * (ONE - dx1_) + c100 * dx1_;
-        c10  = c010 * (ONE - dx1_) + c110 * dx1_;
-        c0   = c00 * (ONE - dx2_) + c10 * dx2_;
-        // interpolate to nodes
-        c001 = HALF * (EB(i, j, k + 1, em::ex1) + EB(i - 1, j, k + 1, em::ex1));
-        c101 = HALF * (EB(i, j, k + 1, em::ex1) + EB(i + 1, j, k + 1, em::ex1));
-        c011 = HALF *
-               (EB(i, j + 1, k + 1, em::ex1) + EB(i - 1, j + 1, k + 1, em::ex1));
-        c111 = HALF *
-               (EB(i, j + 1, k + 1, em::ex1) + EB(i + 1, j + 1, k + 1, em::ex1));
-        // interpolate from nodes to the particle position
-        c01   = c001 * (ONE - dx1_) + c101 * dx1_;
-        c11   = c011 * (ONE - dx1_) + c111 * dx1_;
-        c1    = c01 * (ONE - dx2_) + c11 * dx2_;
-        e0[0] = c0 * (ONE - dx3_) + c1 * dx3_;
+          // direct interpolation - Arno
+          int indx = static_cast<int>(dx1_ + HALF);
+          int indy = static_cast<int>(dx2_ + HALF);
 
-        // Ex2
-        c000 = HALF * (EB(i, j, k, em::ex2) + EB(i, j - 1, k, em::ex2));
-        c100 = HALF * (EB(i + 1, j, k, em::ex2) + EB(i + 1, j - 1, k, em::ex2));
-        c010 = HALF * (EB(i, j, k, em::ex2) + EB(i, j + 1, k, em::ex2));
-        c110 = HALF * (EB(i + 1, j, k, em::ex2) + EB(i + 1, j + 1, k, em::ex2));
-        c00  = c000 * (ONE - dx1_) + c100 * dx1_;
-        c10  = c010 * (ONE - dx1_) + c110 * dx1_;
-        c0   = c00 * (ONE - dx2_) + c10 * dx2_;
-        c001 = HALF * (EB(i, j, k + 1, em::ex2) + EB(i, j - 1, k + 1, em::ex2));
-        c101 = HALF *
-               (EB(i + 1, j, k + 1, em::ex2) + EB(i + 1, j - 1, k + 1, em::ex2));
-        c011 = HALF * (EB(i, j, k + 1, em::ex2) + EB(i, j + 1, k + 1, em::ex2));
-        c111 = HALF *
-               (EB(i + 1, j, k + 1, em::ex2) + EB(i + 1, j + 1, k + 1, em::ex2));
-        c01   = c001 * (ONE - dx1_) + c101 * dx1_;
-        c11   = c011 * (ONE - dx1_) + c111 * dx1_;
-        c1    = c01 * (ONE - dx2_) + c11 * dx2_;
-        e0[1] = c0 * (ONE - dx3_) + c1 * dx3_;
+          // first order
+          real_t c000, c100, c010, c110, c00, c10;
 
-        // Ex3
-        c000 = HALF * (EB(i, j, k, em::ex3) + EB(i, j, k - 1, em::ex3));
-        c100 = HALF * (EB(i + 1, j, k, em::ex3) + EB(i + 1, j, k - 1, em::ex3));
-        c010 = HALF * (EB(i, j + 1, k, em::ex3) + EB(i, j + 1, k - 1, em::ex3));
-        c110 = HALF *
-               (EB(i + 1, j + 1, k, em::ex3) + EB(i + 1, j + 1, k - 1, em::ex3));
-        c001 = HALF * (EB(i, j, k, em::ex3) + EB(i, j, k + 1, em::ex3));
-        c101 = HALF * (EB(i + 1, j, k, em::ex3) + EB(i + 1, j, k + 1, em::ex3));
-        c011 = HALF * (EB(i, j + 1, k, em::ex3) + EB(i, j + 1, k + 1, em::ex3));
-        c111 = HALF *
-               (EB(i + 1, j + 1, k, em::ex3) + EB(i + 1, j + 1, k + 1, em::ex3));
-        c00   = c000 * (ONE - dx1_) + c100 * dx1_;
-        c01   = c001 * (ONE - dx1_) + c101 * dx1_;
-        c10   = c010 * (ONE - dx1_) + c110 * dx1_;
-        c11   = c011 * (ONE - dx1_) + c111 * dx1_;
-        c0    = c00 * (ONE - dx2_) + c10 * dx2_;
-        c1    = c01 * (ONE - dx2_) + c11 * dx2_;
-        e0[2] = c0 * (ONE - dx3_) + c1 * dx3_;
+          real_t ponpmx = ONE - dx1_;
+          real_t ponppx = dx1_;
+          real_t ponpmy = ONE - dx2_;
+          real_t ponppy = dx2_;
 
-        // Bx1
-        c000 = INV_4 * (EB(i, j, k, em::bx1) + EB(i, j - 1, k, em::bx1) +
-                        EB(i, j, k - 1, em::bx1) + EB(i, j - 1, k - 1, em::bx1));
-        c100 = INV_4 *
-               (EB(i + 1, j, k, em::bx1) + EB(i + 1, j - 1, k, em::bx1) +
-                EB(i + 1, j, k - 1, em::bx1) + EB(i + 1, j - 1, k - 1, em::bx1));
-        c001 = INV_4 * (EB(i, j, k, em::bx1) + EB(i, j, k + 1, em::bx1) +
-                        EB(i, j - 1, k, em::bx1) + EB(i, j - 1, k + 1, em::bx1));
-        c101 = INV_4 *
-               (EB(i + 1, j, k, em::bx1) + EB(i + 1, j, k + 1, em::bx1) +
-                EB(i + 1, j - 1, k, em::bx1) + EB(i + 1, j - 1, k + 1, em::bx1));
-        c010 = INV_4 * (EB(i, j, k, em::bx1) + EB(i, j + 1, k, em::bx1) +
-                        EB(i, j, k - 1, em::bx1) + EB(i, j + 1, k - 1, em::bx1));
-        c110 = INV_4 *
-               (EB(i + 1, j, k, em::bx1) + EB(i + 1, j, k - 1, em::bx1) +
-                EB(i + 1, j + 1, k - 1, em::bx1) + EB(i + 1, j + 1, k, em::bx1));
-        c011 = INV_4 * (EB(i, j, k, em::bx1) + EB(i, j + 1, k, em::bx1) +
-                        EB(i, j + 1, k + 1, em::bx1) + EB(i, j, k + 1, em::bx1));
-        c111 = INV_4 *
-               (EB(i + 1, j, k, em::bx1) + EB(i + 1, j + 1, k, em::bx1) +
-                EB(i + 1, j + 1, k + 1, em::bx1) + EB(i + 1, j, k + 1, em::bx1));
-        c00   = c000 * (ONE - dx1_) + c100 * dx1_;
-        c01   = c001 * (ONE - dx1_) + c101 * dx1_;
-        c10   = c010 * (ONE - dx1_) + c110 * dx1_;
-        c11   = c011 * (ONE - dx1_) + c111 * dx1_;
-        c0    = c00 * (ONE - dx2_) + c10 * dx2_;
-        c1    = c01 * (ONE - dx2_) + c11 * dx2_;
-        b0[0] = c0 * (ONE - dx3_) + c1 * dx3_;
+          real_t pondmx = static_cast<real_t>(indx + ONE) - (dx1_ + HALF);
+          real_t pondpx = ONE - pondmx;
+          real_t pondmy = static_cast<real_t>(indy + ONE) - (dx2_ + HALF);
+          real_t pondpy = ONE - pondmy;
 
-        // Bx2
-        c000 = INV_4 * (EB(i - 1, j, k - 1, em::bx2) + EB(i - 1, j, k, em::bx2) +
-                        EB(i, j, k - 1, em::bx2) + EB(i, j, k, em::bx2));
-        c100 = INV_4 * (EB(i, j, k - 1, em::bx2) + EB(i, j, k, em::bx2) +
-                        EB(i + 1, j, k - 1, em::bx2) + EB(i + 1, j, k, em::bx2));
-        c001 = INV_4 * (EB(i - 1, j, k, em::bx2) + EB(i - 1, j, k + 1, em::bx2) +
-                        EB(i, j, k, em::bx2) + EB(i, j, k + 1, em::bx2));
-        c101 = INV_4 * (EB(i, j, k, em::bx2) + EB(i, j, k + 1, em::bx2) +
-                        EB(i + 1, j, k, em::bx2) + EB(i + 1, j, k + 1, em::bx2));
-        c010 = INV_4 *
-               (EB(i - 1, j + 1, k - 1, em::bx2) + EB(i - 1, j + 1, k, em::bx2) +
-                EB(i, j + 1, k - 1, em::bx2) + EB(i, j + 1, k, em::bx2));
-        c110 = INV_4 *
-               (EB(i, j + 1, k - 1, em::bx2) + EB(i, j + 1, k, em::bx2) +
-                EB(i + 1, j + 1, k - 1, em::bx2) + EB(i + 1, j + 1, k, em::bx2));
-        c011 = INV_4 *
-               (EB(i - 1, j + 1, k, em::bx2) + EB(i - 1, j + 1, k + 1, em::bx2) +
-                EB(i, j + 1, k, em::bx2) + EB(i, j + 1, k + 1, em::bx2));
-        c111 = INV_4 *
-               (EB(i, j + 1, k, em::bx2) + EB(i, j + 1, k + 1, em::bx2) +
-                EB(i + 1, j + 1, k, em::bx2) + EB(i + 1, j + 1, k + 1, em::bx2));
-        c00   = c000 * (ONE - dx1_) + c100 * dx1_;
-        c01   = c001 * (ONE - dx1_) + c101 * dx1_;
-        c10   = c010 * (ONE - dx1_) + c110 * dx1_;
-        c11   = c011 * (ONE - dx1_) + c111 * dx1_;
-        c0    = c00 * (ONE - dx2_) + c10 * dx2_;
-        c1    = c01 * (ONE - dx2_) + c11 * dx2_;
-        b0[1] = c0 * (ONE - dx3_) + c1 * dx3_;
+          // Ex1
+          // Interpolate --- (dual, primal)
+          c000  = EB(i - 1 + indx, j, em::ex1);
+          c100  = EB(i + indx, j, em::ex1);
+          c010  = EB(i - 1 + indx, j + 1, em::ex1);
+          c110  = EB(i + indx, j + 1, em::ex1);
+          c00   = c000 * pondmx + c100 * pondpx;
+          c10   = c010 * pondmx + c110 * pondpx;
+          e0[0] = c00 * ponpmy + c10 * ponppy;
+          // Ex2
+          // Interpolate -- (primal, dual)
+          c000  = EB(i, j - 1 + indy, em::ex2);
+          c100  = EB(i + 1, j - 1 + indy, em::ex2);
+          c010  = EB(i, j + indy, em::ex2);
+          c110  = EB(i + 1, j + indy, em::ex2);
+          c00   = c000 * ponpmx + c100 * ponppx;
+          c10   = c010 * ponpmx + c110 * ponppx;
+          e0[1] = c00 * pondmy + c10 * pondpy;
+          // Ex3
+          // Interpolate -- (primal, primal)
+          c000  = EB(i, j, em::ex3);
+          c100  = EB(i + 1, j, em::ex3);
+          c010  = EB(i, j + 1, em::ex3);
+          c110  = EB(i + 1, j + 1, em::ex3);
+          c00   = c000 * ponpmx + c100 * ponppx;
+          c10   = c010 * ponpmx + c110 * ponppx;
+          e0[2] = c00 * ponpmy + c10 * ponppy;
 
-        // Bx3
-        c000 = INV_4 * (EB(i - 1, j - 1, k, em::bx3) + EB(i - 1, j, k, em::bx3) +
-                        EB(i, j - 1, k, em::bx3) + EB(i, j, k, em::bx3));
-        c100 = INV_4 * (EB(i, j - 1, k, em::bx3) + EB(i, j, k, em::bx3) +
-                        EB(i + 1, j - 1, k, em::bx3) + EB(i + 1, j, k, em::bx3));
-        c001 = INV_4 *
-               (EB(i - 1, j - 1, k + 1, em::bx3) + EB(i - 1, j, k + 1, em::bx3) +
-                EB(i, j - 1, k + 1, em::bx3) + EB(i, j, k + 1, em::bx3));
-        c101 = INV_4 *
-               (EB(i, j - 1, k + 1, em::bx3) + EB(i, j, k + 1, em::bx3) +
-                EB(i + 1, j - 1, k + 1, em::bx3) + EB(i + 1, j, k + 1, em::bx3));
-        c010 = INV_4 * (EB(i - 1, j, k, em::bx3) + EB(i - 1, j + 1, k, em::bx3) +
-                        EB(i, j, k, em::bx3) + EB(i, j + 1, k, em::bx3));
-        c110 = INV_4 * (EB(i, j, k, em::bx3) + EB(i, j + 1, k, em::bx3) +
-                        EB(i + 1, j, k, em::bx3) + EB(i + 1, j + 1, k, em::bx3));
-        c011 = INV_4 *
-               (EB(i - 1, j, k + 1, em::bx3) + EB(i - 1, j + 1, k + 1, em::bx3) +
-                EB(i, j, k + 1, em::bx3) + EB(i, j + 1, k + 1, em::bx3));
-        c111 = INV_4 *
-               (EB(i, j, k + 1, em::bx3) + EB(i, j + 1, k + 1, em::bx3) +
-                EB(i + 1, j, k + 1, em::bx3) + EB(i + 1, j + 1, k + 1, em::bx3));
-        c00   = c000 * (ONE - dx1_) + c100 * dx1_;
-        c01   = c001 * (ONE - dx1_) + c101 * dx1_;
-        c10   = c010 * (ONE - dx1_) + c110 * dx1_;
-        c11   = c011 * (ONE - dx1_) + c111 * dx1_;
-        c0    = c00 * (ONE - dx2_) + c10 * dx2_;
-        c1    = c01 * (ONE - dx2_) + c11 * dx2_;
-        b0[2] = c0 * (ONE - dx3_) + c1 * dx3_;
+          // Bx1
+          // Interpolate -- (primal, dual)
+          c000  = EB(i, j - 1 + indy, em::bx1);
+          c100  = EB(i + 1, j - 1 + indy, em::bx1);
+          c010  = EB(i, j + indy, em::bx1);
+          c110  = EB(i + 1, j + indy, em::bx1);
+          c00   = c000 * ponpmx + c100 * ponppx;
+          c10   = c010 * ponpmx + c110 * ponppx;
+          b0[0] = c00 * pondmy + c10 * pondpy;
+          // Bx2
+          // Interpolate -- (dual, primal)
+          c000  = EB(i - 1 + indx, j, em::bx2);
+          c100  = EB(i + indx, j, em::bx2);
+          c010  = EB(i - 1 + indx, j + 1, em::bx2);
+          c110  = EB(i + indx, j + 1, em::bx2);
+          c00   = c000 * pondmx + c100 * pondpx;
+          c10   = c010 * pondmx + c110 * pondpx;
+          b0[1] = c00 * ponpmy + c10 * ponppy;
+          // Bx3
+          // Interpolate -- (dual, dual)
+          c000  = EB(i - 1 + indx, j - 1 + indy, em::bx3);
+          c100  = EB(i + indx, j - 1 + indy, em::bx3);
+          c010  = EB(i - 1 + indx, j + indy, em::bx3);
+          c110  = EB(i + indx, j + indy, em::bx3);
+          c00   = c000 * pondmx + c100 * pondpx;
+          c10   = c010 * pondmx + c110 * pondpx;
+          b0[2] = c00 * pondmy + c10 * pondpy;
+        } else if constexpr (D == Dim::_3D) {
+          const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
+          const int  j { i2(p) + static_cast<int>(N_GHOSTS) };
+          const int  k { i3(p) + static_cast<int>(N_GHOSTS) };
+          const auto dx1_ { static_cast<real_t>(dx1(p)) };
+          const auto dx2_ { static_cast<real_t>(dx2(p)) };
+          const auto dx3_ { static_cast<real_t>(dx3(p)) };
+
+          // direct interpolation - Arno
+          int indx = static_cast<int>(dx1_ + HALF);
+          int indy = static_cast<int>(dx2_ + HALF);
+          int indz = static_cast<int>(dx3_ + HALF);
+
+          // first order
+          real_t c000, c100, c010, c110, c001, c101, c011, c111, c00, c10, c01,
+            c11, c0, c1;
+
+          real_t ponpmx = ONE - dx1_;
+          real_t ponppx = dx1_;
+          real_t ponpmy = ONE - dx2_;
+          real_t ponppy = dx2_;
+          real_t ponpmz = ONE - dx3_;
+          real_t ponppz = dx3_;
+
+          real_t pondmx = static_cast<real_t>(indx + ONE) - (dx1_ + HALF);
+          real_t pondpx = ONE - pondmx;
+          real_t pondmy = static_cast<real_t>(indy + ONE) - (dx2_ + HALF);
+          real_t pondpy = ONE - pondmy;
+          real_t pondmz = static_cast<real_t>(indz + ONE) - (dx3_ + HALF);
+          real_t pondpz = ONE - pondmz;
+
+          // Ex1
+          // Interpolate --- (dual, primal, primal)
+          c000  = EB(i - 1 + indx, j, k, em::ex1);
+          c100  = EB(i + indx, j, k, em::ex1);
+          c010  = EB(i - 1 + indx, j + 1, k, em::ex1);
+          c110  = EB(i + indx, j + 1, k, em::ex1);
+          c001  = EB(i - 1 + indx, j, k + 1, em::ex1);
+          c101  = EB(i + indx, j, k + 1, em::ex1);
+          c011  = EB(i - 1 + indx, j + 1, k + 1, em::ex1);
+          c111  = EB(i + indx, j + 1, k + 1, em::ex1);
+          c00   = c000 * pondmx + c100 * pondpx;
+          c10   = c010 * pondmx + c110 * pondpx;
+          c0    = c00 * ponpmy + c10 * ponppy;
+          c01   = c001 * pondmx + c101 * pondpx;
+          c11   = c011 * pondmx + c111 * pondpx;
+          c1    = c01 * ponpmy + c11 * ponppy;
+          e0[0] = c0 * ponpmz + c1 * ponppz;
+          // Ex2
+          // Interpolate -- (primal, dual, primal)
+          c000  = EB(i, j - 1 + indy, k, em::ex2);
+          c100  = EB(i + 1, j - 1 + indy, k, em::ex2);
+          c010  = EB(i, j + indy, k, em::ex2);
+          c110  = EB(i + 1, j + indy, k, em::ex2);
+          c001  = EB(i, j - 1 + indy, k + 1, em::ex2);
+          c101  = EB(i + 1, j - 1 + indy, k + 1, em::ex2);
+          c011  = EB(i, j + indy, k + 1, em::ex2);
+          c111  = EB(i + 1, j + indy, k + 1, em::ex2);
+          c00   = c000 * ponpmx + c100 * ponppx;
+          c10   = c010 * ponpmx + c110 * ponppx;
+          c0    = c00 * pondmy + c10 * pondpy;
+          c01   = c001 * ponpmx + c101 * ponppx;
+          c11   = c011 * ponpmx + c111 * ponppx;
+          c1    = c01 * pondmy + c11 * pondpy;
+          e0[1] = c0 * ponpmz + c1 * ponppz;
+          // Ex3
+          // Interpolate -- (primal, primal, dual)
+          c000  = EB(i, j, k - 1 + indz, em::ex3);
+          c100  = EB(i + 1, j, k - 1 + indz, em::ex3);
+          c010  = EB(i, j + 1, k - 1 + indz, em::ex3);
+          c110  = EB(i + 1, j + 1, k - 1 + indz, em::ex3);
+          c001  = EB(i, j, k + indz, em::ex3);
+          c101  = EB(i + 1, j, k + indz, em::ex3);
+          c011  = EB(i, j + 1, k + indz, em::ex3);
+          c111  = EB(i + 1, j + 1, k + indz, em::ex3);
+          c00   = c000 * ponpmx + c100 * ponppx;
+          c10   = c010 * ponpmx + c110 * ponppx;
+          c0    = c00 * ponpmy + c10 * ponppy;
+          c01   = c001 * ponpmx + c101 * ponppx;
+          c11   = c011 * ponpmx + c111 * ponppx;
+          c1    = c01 * ponpmy + c11 * ponppy;
+          e0[2] = c0 * pondmz + c1 * pondpz;
+
+          // Bx1
+          // Interpolate -- (primal, dual, dual)
+          c000  = EB(i, j - 1 + indy, k - 1 + indz, em::bx1);
+          c100  = EB(i + 1, j - 1 + indy, k - 1 + indz, em::bx1);
+          c010  = EB(i, j + indy, k - 1 + indz, em::bx1);
+          c110  = EB(i + 1, j + indy, k - 1 + indz, em::bx1);
+          c001  = EB(i, j - 1 + indy, k + indz, em::bx1);
+          c101  = EB(i + 1, j - 1 + indy, k + indz, em::bx1);
+          c011  = EB(i, j + indy, k + indz, em::bx1);
+          c111  = EB(i + 1, j + indy, k + indz, em::bx1);
+          c00   = c000 * ponpmx + c100 * ponppx;
+          c10   = c010 * ponpmx + c110 * ponppx;
+          c0    = c00 * pondmy + c10 * pondpy;
+          c01   = c001 * ponpmx + c101 * ponppx;
+          c11   = c011 * ponpmx + c111 * ponppx;
+          c1    = c01 * pondmy + c11 * pondpy;
+          b0[0] = c0 * pondmz + c1 * pondpz;
+          // Bx2
+          // Interpolate -- (dual, primal, dual)
+          c000  = EB(i - 1 + indx, j, k - 1 + indz, em::bx2);
+          c100  = EB(i + indx, j, k - 1 + indz, em::bx2);
+          c010  = EB(i - 1 + indx, j + 1, k - 1 + indz, em::bx2);
+          c110  = EB(i + indx, j + 1, k - 1 + indz, em::bx2);
+          c001  = EB(i - 1 + indx, j, k + indz, em::bx2);
+          c101  = EB(i + indx, j, k + indz, em::bx2);
+          c011  = EB(i - 1 + indx, j + 1, k + indz, em::bx2);
+          c111  = EB(i + indx, j + 1, k + indz, em::bx2);
+          c00   = c000 * pondmx + c100 * pondpx;
+          c10   = c010 * pondmx + c110 * pondpx;
+          c0    = c00 * ponpmy + c10 * ponppy;
+          c01   = c001 * pondmx + c101 * pondpx;
+          c11   = c011 * pondmx + c111 * pondpx;
+          c1    = c01 * ponpmy + c11 * ponppy;
+          b0[1] = c0 * pondmz + c1 * pondpz;
+          // Bx3
+          // Interpolate -- (dual, dual, primal)
+          c000  = EB(i - 1 + indx, j - 1 + indy, k, em::bx3);
+          c100  = EB(i + indx, j - 1 + indy, k, em::bx3);
+          c010  = EB(i - 1 + indx, j + indy, k, em::bx3);
+          c110  = EB(i + indx, j + indy, k, em::bx3);
+          c001  = EB(i - 1 + indx, j - 1 + indy, k + 1, em::bx3);
+          c101  = EB(i + indx, j - 1 + indy, k + 1, em::bx3);
+          c011  = EB(i - 1 + indx, j + indy, k + 1, em::bx3);
+          c111  = EB(i + indx, j + indy, k + 1, em::bx3);
+          c00   = c000 * pondmx + c100 * pondpx;
+          c10   = c010 * pondmx + c110 * pondpx;
+          c0    = c00 * ponpmy + c10 * ponppy;
+          c01   = c001 * pondmx + c101 * pondpx;
+          c11   = c011 * pondmx + c111 * pondpx;
+          c1    = c01 * ponpmy + c11 * ponppy;
+          b0[2] = c0 * ponpmz + c1 * ponppz;
+        }
+      } else if constexpr (O >= 1u) {
+
+        if constexpr (D == Dim::_1D) {
+          const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
+          const auto dx1_ { static_cast<real_t>(dx1(p)) };
+          // primal and dual shape function
+          real_t     Sp[O + 1], Sd[O + 1];
+          // minimum contributing cells
+          int        ip_min, id_min;
+
+          // primal shape function - not staggered
+          prtl_shape::order<false, O>(i, dx1_, ip_min, Sp);
+
+          // dual shape function - staggered
+          prtl_shape::order<true, O>(i, dx1_, id_min, Sd);
+
+          // Ex1 -- dual
+          e0[0] = ZERO;
+          for (int idx1 = 0; idx1 < O + 1; idx1++) {
+            e0[0] += Sd[idx1] * EB(id_min + idx1, em::ex1);
+          }
+
+          // Ex2 -- primal
+          e0[1] = ZERO;
+          for (int idx1 = 0; idx1 < O + 1; idx1++) {
+            e0[1] += Sp[idx1] * EB(ip_min + idx1, em::ex2);
+          }
+
+          // Ex3 -- primal
+          e0[2] = ZERO;
+          for (int idx1 = 0; idx1 < O + 1; idx1++) {
+            e0[2] += Sp[idx1] * EB(ip_min + idx1, em::ex3);
+          }
+
+          // Bx1 -- primal
+          b0[0] = ZERO;
+          for (int idx1 = 0; idx1 < O + 1; idx1++) {
+            b0[0] += Sp[idx1] * EB(ip_min + idx1, em::bx1);
+          }
+
+          // Bx2 -- dual
+          b0[1] = ZERO;
+          for (int idx1 = 0; idx1 < O + 1; idx1++) {
+            b0[1] += Sd[idx1] * EB(id_min + idx1, em::bx2);
+          }
+
+          // Bx3 -- dual
+          b0[2] = ZERO;
+          for (int idx1 = 0; idx1 < O + 1; idx1++) {
+            b0[2] += Sd[idx1] * EB(id_min + idx1, em::bx3);
+          }
+
+        } else if constexpr (D == Dim::_2D) {
+
+          const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
+          const int  j { i2(p) + static_cast<int>(N_GHOSTS) };
+          const auto dx1_ { static_cast<real_t>(dx1(p)) };
+          const auto dx2_ { static_cast<real_t>(dx2(p)) };
+
+          // primal and dual shape function
+          real_t S1p[O + 1], S1d[O + 1];
+          real_t S2p[O + 1], S2d[O + 1];
+          // minimum contributing cells
+          int    ip_min, id_min;
+          int    jp_min, jd_min;
+
+          // primal shape function - not staggered
+          prtl_shape::order<false, O>(i, dx1_, ip_min, S1p);
+          prtl_shape::order<false, O>(j, dx2_, jp_min, S2p);
+          // dual shape function - staggered
+          prtl_shape::order<true, O>(i, dx1_, id_min, S1d);
+          prtl_shape::order<true, O>(j, dx2_, jd_min, S2d);
+
+          // Ex1 -- dual, primal
+          e0[0] = ZERO;
+          for (int idx2 = 0; idx2 < O + 1; idx2++) {
+            real_t c0 = ZERO;
+            for (int idx1 = 0; idx1 < O + 1; idx1++) {
+              c0 += S1d[idx1] * EB(id_min + idx1, jp_min + idx2, em::ex1);
+            }
+            e0[0] += c0 * S2p[idx2];
+          }
+
+          // Ex2 -- primal, dual
+          e0[1] = ZERO;
+          for (int idx2 = 0; idx2 < O + 1; idx2++) {
+            real_t c0 = ZERO;
+            for (int idx1 = 0; idx1 < O + 1; idx1++) {
+              c0 += S1p[idx1] * EB(ip_min + idx1, jd_min + idx2, em::ex2);
+            }
+            e0[1] += c0 * S2d[idx2];
+          }
+
+          // Ex3 -- primal, primal
+          e0[2] = ZERO;
+          for (int idx2 = 0; idx2 < O + 1; idx2++) {
+            real_t c0 = ZERO;
+            for (int idx1 = 0; idx1 < O + 1; idx1++) {
+              c0 += S1p[idx1] * EB(ip_min + idx1, jp_min + idx2, em::ex3);
+            }
+            e0[2] += c0 * S2p[idx2];
+          }
+
+          // Bx1 -- primal, dual
+          b0[0] = ZERO;
+          for (int idx2 = 0; idx2 < O + 1; idx2++) {
+            real_t c0 = ZERO;
+            for (int idx1 = 0; idx1 < O + 1; idx1++) {
+              c0 += S1p[idx1] * EB(ip_min + idx1, jd_min + idx2, em::bx1);
+            }
+            b0[0] += c0 * S2d[idx2];
+          }
+
+          // Bx2 -- dual, primal
+          b0[1] = ZERO;
+          for (int idx2 = 0; idx2 < O + 1; idx2++) {
+            real_t c0 = ZERO;
+            for (int idx1 = 0; idx1 < O + 1; idx1++) {
+              c0 += S1d[idx1] * EB(id_min + idx1, jp_min + idx2, em::bx2);
+            }
+            b0[1] += c0 * S2p[idx2];
+          }
+
+          // Bx3 -- dual, dual
+          b0[2] = ZERO;
+          for (int idx2 = 0; idx2 < O + 1; idx2++) {
+            real_t c0 = ZERO;
+            for (int idx1 = 0; idx1 < O + 1; idx1++) {
+              c0 += S1d[idx1] * EB(id_min + idx1, jd_min + idx2, em::bx3);
+            }
+            b0[2] += c0 * S2d[idx2];
+          }
+
+        } else if constexpr (D == Dim::_3D) {
+
+          const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
+          const int  j { i2(p) + static_cast<int>(N_GHOSTS) };
+          const int  k { i3(p) + static_cast<int>(N_GHOSTS) };
+          const auto dx1_ { static_cast<real_t>(dx1(p)) };
+          const auto dx2_ { static_cast<real_t>(dx2(p)) };
+          const auto dx3_ { static_cast<real_t>(dx3(p)) };
+
+          // primal and dual shape function
+          real_t S1p[O + 1], S1d[O + 1];
+          real_t S2p[O + 1], S2d[O + 1];
+          real_t S3p[O + 1], S3d[O + 1];
+
+          // minimum contributing cells
+          int ip_min, id_min;
+          int jp_min, jd_min;
+          int kp_min, kd_min;
+
+          // primal shape function - not staggered
+          prtl_shape::order<false, O>(i, dx1_, ip_min, S1p);
+          prtl_shape::order<false, O>(j, dx2_, jp_min, S2p);
+          prtl_shape::order<false, O>(k, dx3_, kp_min, S3p);
+          // dual shape function - staggered
+          prtl_shape::order<true, O>(i, dx1_, id_min, S1d);
+          prtl_shape::order<true, O>(j, dx2_, jd_min, S2d);
+          prtl_shape::order<true, O>(k, dx3_, kd_min, S3d);
+
+          // Ex1 -- dual, primal, primal
+          e0[0] = ZERO;
+          for (int idx3 = 0; idx3 < O + 1; idx3++) {
+            real_t c0 = ZERO;
+            for (int idx2 = 0; idx2 < O + 1; idx2++) {
+              real_t c00 = ZERO;
+              for (int idx1 = 0; idx1 < O + 1; idx1++) {
+                c00 += S1d[idx1] *
+                       EB(id_min + idx1, jp_min + idx2, kp_min + idx3, em::ex1);
+              }
+              c0 += c00 * S2p[idx2];
+            }
+            e0[0] += c0 * S3p[idx3];
+          }
+
+          // Ex2 -- primal, dual, primal
+          e0[1] = ZERO;
+          for (int idx3 = 0; idx3 < O + 1; idx3++) {
+            real_t c0 = ZERO;
+            for (int idx2 = 0; idx2 < O + 1; idx2++) {
+              real_t c00 = ZERO;
+              for (int idx1 = 0; idx1 < O + 1; idx1++) {
+                c00 += S1p[idx1] *
+                       EB(ip_min + idx1, jd_min + idx2, kp_min + idx3, em::ex2);
+              }
+              c0 += c00 * S2d[idx2];
+            }
+            e0[1] += c0 * S3p[idx3];
+          }
+
+          // Ex3 -- primal, primal, dual
+          e0[2] = ZERO;
+          for (int idx3 = 0; idx3 < O + 1; idx3++) {
+            real_t c0 = ZERO;
+            for (int idx2 = 0; idx2 < O + 1; idx2++) {
+              real_t c00 = ZERO;
+              for (int idx1 = 0; idx1 < O + 1; idx1++) {
+                c00 += S1p[idx1] *
+                       EB(ip_min + idx1, jp_min + idx2, kd_min + idx3, em::ex3);
+              }
+              c0 += c00 * S2p[idx2];
+            }
+            e0[2] += c0 * S3d[idx3];
+          }
+
+          // Bx1 -- primal, dual, dual
+          b0[0] = ZERO;
+          for (int idx3 = 0; idx3 < O + 1; idx3++) {
+            real_t c0 = ZERO;
+            for (int idx2 = 0; idx2 < O + 1; idx2++) {
+              real_t c00 = ZERO;
+              for (int idx1 = 0; idx1 < O + 1; idx1++) {
+                c00 += S1p[idx1] *
+                       EB(ip_min + idx1, jd_min + idx2, kd_min + idx3, em::bx1);
+              }
+              c0 += c00 * S2d[idx2];
+            }
+            b0[0] += c0 * S3d[idx3];
+          }
+
+          // Bx2 -- dual, primal, dual
+          b0[1] = ZERO;
+          for (int idx3 = 0; idx3 < O + 1; idx3++) {
+            real_t c0 = ZERO;
+            for (int idx2 = 0; idx2 < O + 1; idx2++) {
+              real_t c00 = ZERO;
+              for (int idx1 = 0; idx1 < O + 1; idx1++) {
+                c00 += S1d[idx1] *
+                       EB(id_min + idx1, jp_min + idx2, kd_min + idx3, em::bx2);
+              }
+              c0 += c00 * S2p[idx2];
+            }
+            b0[1] += c0 * S3d[idx3];
+          }
+
+          // Bx3 -- dual, dual, primal
+          b0[2] = ZERO;
+          for (int idx3 = 0; idx3 < O + 1; idx3++) {
+            real_t c0 = ZERO;
+            for (int idx2 = 0; idx2 < O + 1; idx2++) {
+              real_t c00 = ZERO;
+              for (int idx1 = 0; idx1 < O + 1; idx1++) {
+                c00 += S1d[idx1] *
+                       EB(id_min + idx1, jd_min + idx2, kp_min + idx3, em::bx3);
+              }
+              c0 += c00 * S2d[idx2];
+            }
+            b0[2] += c0 * S3p[idx3];
+          }
+        }
       }
     }
 
     // Extra
-    Inline void boundaryConditions(index_t& p, coord_t<M::PrtlDim>& xp) const {
+    Inline void boundaryConditions(index_t p, coord_t<M::PrtlDim>& xp) const {
       if constexpr (D == Dim::_1D || D == Dim::_2D || D == Dim::_3D) {
         auto invert_vel = false;
         if (i1(p) < 0) {
