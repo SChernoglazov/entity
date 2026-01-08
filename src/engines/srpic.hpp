@@ -94,6 +94,9 @@ namespace ntt {
       if (fieldsolver_enabled) {
         timers.start("FieldSolver");
         Faraday(dom, HALF);
+        if constexpr (traits::has_method<traits::pgen::custom_fieldevolution_t, decltype(m_pgen)>::value) {
+            m_pgen.CustomFieldEvolution(step, time, dom, false, true);
+	}		
         timers.stop("FieldSolver");
 
         timers.start("Communications");
@@ -135,6 +138,9 @@ namespace ntt {
       if (fieldsolver_enabled) {
         timers.start("FieldSolver");
         Faraday(dom, HALF);
+        if constexpr (traits::has_method<traits::pgen::custom_fieldevolution_t, decltype(m_pgen)>::value) {
+            m_pgen.CustomFieldEvolution(step, time, dom, false, true);
+	}		
         timers.stop("FieldSolver");
 
         timers.start("Communications");
@@ -147,6 +153,9 @@ namespace ntt {
 
         timers.start("FieldSolver");
         Ampere(dom, ONE);
+        if constexpr (traits::has_method<traits::pgen::custom_fieldevolution_t, decltype(m_pgen)>::value) {
+	    m_pgen.CustomFieldEvolution(step, time, dom, true, false);
+        }		
         timers.stop("FieldSolver");
 
         if (deposit_enabled) {
@@ -395,7 +404,7 @@ namespace ntt {
             kernel::sr::Pusher_kernel<M>(
                 pusher, has_gca, false,
                 cooling_tags,
-                domain.fields.em,
+                domain.fields.em, domain.fields.mechForce, 
                 species.index(),
                 species.i1,        species.i2,       species.i3,
                 species.i1_prev,   species.i2_prev,  species.i3_prev,
@@ -424,7 +433,7 @@ namespace ntt {
             kernel::sr::Pusher_kernel<M, decltype(force)>(
                 pusher, has_gca, false,
                 cooling_tags,
-                domain.fields.em,
+                domain.fields.em, domain.fields.mechForce,
                 species.index(),
                 species.i1,        species.i2,       species.i3,
                 species.i1_prev,   species.i2_prev,  species.i3_prev,
@@ -453,7 +462,7 @@ namespace ntt {
               kernel::sr::Pusher_kernel<M, decltype(force)>(
                   pusher, has_gca, true,
                   cooling_tags,
-                  domain.fields.em,
+                  domain.fields.em, domain.fields.mechForce,
                   species.index(),
                   species.i1,        species.i2,       species.i3,
                   species.i1_prev,   species.i2_prev,  species.i3_prev,
@@ -485,7 +494,7 @@ namespace ntt {
               kernel::sr::Pusher_kernel<M, decltype(force)>(
                   pusher, has_gca, true,
                   cooling_tags,
-                  domain.fields.em,
+                  domain.fields.em, domain.fields.mechForce,
                   species.index(),
                   species.i1,        species.i2,       species.i3,
                   species.i1_prev,   species.i2_prev,  species.i3_prev,

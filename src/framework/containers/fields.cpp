@@ -23,11 +23,13 @@ namespace ntt {
       bckp = ndfield_t<Dim::_1D, 6> { "BCKP", nx1 };
       cur  = ndfield_t<Dim::_1D, 3> { "J", nx1 };
       buff = ndfield_t<Dim::_1D, 3> { "BUFF", nx1 };
+      mechForce = ndfield_t<Dim::_1D, 3> { "FORCE", nx1 };
     } else if constexpr (D == Dim::_2D) {
       em   = ndfield_t<Dim::_2D, 6> { "EM", nx1, nx2 };
       bckp = ndfield_t<Dim::_2D, 6> { "BCKP", nx1, nx2 };
       cur  = ndfield_t<Dim::_2D, 3> { "J", nx1, nx2 };
       buff = ndfield_t<Dim::_2D, 3> { "BUFF", nx1, nx2 };
+      mechForce = ndfield_t<Dim::_2D, 3> { "FORCE", nx1, nx2 };
       if constexpr (S == SimEngine::GRPIC) {
         aux  = ndfield_t<Dim::_2D, 6> { "AUX", nx1, nx2 };
         em0  = ndfield_t<Dim::_2D, 6> { "EM0", nx1, nx2 };
@@ -38,6 +40,7 @@ namespace ntt {
       bckp = ndfield_t<Dim::_3D, 6> { "BCKP", nx1, nx2, nx3 };
       cur  = ndfield_t<Dim::_3D, 3> { "J", nx1, nx2, nx3 };
       buff = ndfield_t<Dim::_3D, 3> { "BUFF", nx1, nx2, nx3 };
+      mechForce = ndfield_t<Dim::_3D, 3> { "FORCE", nx1, nx2, nx3 };
       if constexpr (S == SimEngine::GRPIC) {
         aux  = ndfield_t<Dim::_3D, 6> { "AUX", nx1, nx2, nx3 };
         em0  = ndfield_t<Dim::_3D, 6> { "EM0", nx1, nx2, nx3 };

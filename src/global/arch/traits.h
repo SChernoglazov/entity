@@ -141,6 +141,9 @@ namespace traits {
     using custom_fields_t = decltype(&T::CustomFields);
 
     template <typename T>
+    using custom_fieldevolution_t = decltype(&T::CustomFieldEvolution);
+    
+    template <typename T>
     using custom_poststep_t = decltype(&T::CustomPostStep);
 
     template <typename T>

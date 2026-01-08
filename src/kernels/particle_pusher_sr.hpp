@@ -201,6 +201,7 @@ namespace kernel::sr {
     const CoolingTags      cooling;
 
     const randacc_ndfield_t<D, 6> EB;
+    const randacc_ndfield_t<D, 3> Fmesh;
     const spidx_t                 sp;
     array_t<int*>                 i1, i2, i3;
     array_t<int*>                 i1_prev, i2_prev, i3_prev;
@@ -235,6 +236,7 @@ namespace kernel::sr {
                   bool                           ext_force,
                   CoolingTags                    cooling,
                   const randacc_ndfield_t<D, 6>& EB,
+		  const randacc_ndfield_t<D, 3>& Fmesh,
                   spidx_t                        sp,
                   array_t<int*>&                 i1,
                   array_t<int*>&                 i2,
@@ -271,6 +273,7 @@ namespace kernel::sr {
       , ext_force { ext_force }
       , cooling { cooling }
       , EB { EB }
+      , Fmesh { Fmesh }
       , sp { sp }
       , i1 { i1 }
       , i2 { i2 }
@@ -341,6 +344,7 @@ namespace kernel::sr {
                   bool                        ext_force,
                   CoolingTags                 cooling,
                   const ndfield_t<D, 6>&      EB,
+		  const ndfield_t<D, 3>&      Fmesh,
                   spidx_t                     sp,
                   array_t<int*>&              i1,
                   array_t<int*>&              i2,
@@ -376,6 +380,7 @@ namespace kernel::sr {
                       ext_force,
                       cooling,
                       EB,
+		      Fmesh,
                       sp,
                       i1,
                       i2,
@@ -487,8 +492,8 @@ namespace kernel::sr {
         return;
       }
       // update cartesian velocity
-      vec_t<Dim::_3D> ei { ZERO }, bi { ZERO };
-      vec_t<Dim::_3D> ei_Cart { ZERO }, bi_Cart { ZERO };
+      vec_t<Dim::_3D> ei { ZERO }, bi { ZERO }, fi { ZERO };
+      vec_t<Dim::_3D> ei_Cart { ZERO }, bi_Cart { ZERO }, fi_Cart { ZERO };
       vec_t<Dim::_3D> force_Cart { ZERO };
       vec_t<Dim::_3D> u_prime { ZERO };
       vec_t<Dim::_3D> ei_Cart_rad { ZERO }, bi_Cart_rad { ZERO };
@@ -496,9 +501,11 @@ namespace kernel::sr {
 
       // field interpolation 0th-11th order
       getInterpFlds<SHAPE_ORDER>(p, ei, bi);
+      getInterpForce<SHAPE_ORDER>(p, fi);
 
       metric.template transform_xyz<Idx::U, Idx::XYZ>(xp_Cd, ei, ei_Cart);
       metric.template transform_xyz<Idx::U, Idx::XYZ>(xp_Cd, bi, bi_Cart);
+      metric.template transform_xyz<Idx::U, Idx::XYZ>(xp_Cd, fi, fi_Cart);
       if (cooling != 0) {
         // backup fields & velocities to use later in cooling
         ei_Cart_rad[0] = ei_Cart[0];
@@ -511,16 +518,17 @@ namespace kernel::sr {
         u_prime[1]     = ux2(p);
         u_prime[2]     = ux3(p);
       }
-      if constexpr (ExtForce) {
-        coord_t<M::PrtlDim> xp_Ph { ZERO };
-        xp_Ph[0] = metric.template convert<1, Crd::Cd, Crd::Ph>(xp_Cd[0]);
-        if constexpr (M::PrtlDim == Dim::_2D or M::PrtlDim == Dim::_3D) {
+
+      coord_t<M::PrtlDim> xp_Ph { ZERO };
+      xp_Ph[0] = metric.template convert<1, Crd::Cd, Crd::Ph>(xp_Cd[0]);
+      if constexpr (M::PrtlDim == Dim::_2D or M::PrtlDim == Dim::_3D) {
           xp_Ph[1] = metric.template convert<2, Crd::Cd, Crd::Ph>(xp_Cd[1]);
         }
-        if constexpr (M::PrtlDim == Dim::_3D) {
+      if constexpr (M::PrtlDim == Dim::_3D) {
           xp_Ph[2] = metric.template convert<3, Crd::Cd, Crd::Ph>(xp_Cd[2]);
         }
-        metric.template transform_xyz<Idx::T, Idx::XYZ>(
+      if constexpr (ExtForce) {	
+	  metric.template transform_xyz<Idx::T, Idx::XYZ>(
           xp_Cd,
           { force.fx1(sp, time, ext_force, xp_Ph),
             force.fx2(sp, time, ext_force, xp_Ph),
@@ -536,39 +544,33 @@ namespace kernel::sr {
         if (B2 > ZERO && rL < gca_larmor && (E2 / B2) < gca_EovrB_sqr) {
           is_gca = true;
           // update with GCA
-          if constexpr (ExtForce) {
-            velUpd(true, p, force_Cart, ei_Cart, bi_Cart);
-          } else {
-            velUpd(true, p, ei_Cart, bi_Cart);
-          }
+	  velUpd(true, p, fi_Cart, ei_Cart, bi_Cart);
         } else {
           // update with conventional pusher
-          if constexpr (ExtForce) {
-            ux1(p) += HALF * dt * force_Cart[0];
-            ux2(p) += HALF * dt * force_Cart[1];
-            ux3(p) += HALF * dt * force_Cart[2];
-          }
+	  ux1(p) += HALF * dt * fi_Cart[0];
+	  ux2(p) += HALF * dt * fi_Cart[1];
+	  ux3(p) += HALF * dt * fi_Cart[2];
+	  
           velUpd(false, p, ei_Cart, bi_Cart);
-          if constexpr (ExtForce) {
-            ux1(p) += HALF * dt * force_Cart[0];
-            ux2(p) += HALF * dt * force_Cart[1];
-            ux3(p) += HALF * dt * force_Cart[2];
-          }
+	  
+	  ux1(p) += HALF * dt * fi_Cart[0];
+	  ux2(p) += HALF * dt * fi_Cart[1];
+	  ux3(p) += HALF * dt * fi_Cart[2];
         }
       } else {
         /* conventional pusher mode ------------------------------------- */
         // update with conventional pusher
-        if constexpr (ExtForce) {
-          ux1(p) += HALF * dt * force_Cart[0];
-          ux2(p) += HALF * dt * force_Cart[1];
-          ux3(p) += HALF * dt * force_Cart[2];
-        }
+	
+	ux1(p) += HALF * dt * fi_Cart[0];
+	ux2(p) += HALF * dt * fi_Cart[1];
+	ux3(p) += HALF * dt * fi_Cart[2];
+
         velUpd(false, p, ei_Cart, bi_Cart);
-        if constexpr (ExtForce) {
-          ux1(p) += HALF * dt * force_Cart[0];
-          ux2(p) += HALF * dt * force_Cart[1];
-          ux3(p) += HALF * dt * force_Cart[2];
-        }
+
+	ux1(p) += HALF * dt * fi_Cart[0];
+	ux2(p) += HALF * dt * fi_Cart[1];
+	ux3(p) += HALF * dt * fi_Cart[2];
+	
       }
       // cooling
       if (cooling & Cooling::Synchrotron) {
@@ -855,6 +857,185 @@ namespace kernel::sr {
       }
     }
 
+    template <unsigned short O>
+    Inline void getInterpForce(index_t          p,
+                              vec_t<Dim::_3D>& f0) const {
+
+      // Zig-zag interpolation
+      if constexpr (O == 0u) {
+
+        if constexpr (D == Dim::_1D) {
+          const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
+          const auto dx1_ { static_cast<real_t>(dx1(p)) };
+
+          // direct interpolation - Arno
+          int indx = static_cast<int>(dx1_ + HALF);
+
+          // first order
+          real_t c0, c1;
+
+          real_t ponpmx = ONE - dx1_;
+          real_t ponppx = dx1_;
+
+          real_t pondmx = static_cast<real_t>(indx + ONE) - (dx1_ + HALF);
+          real_t pondpx = ONE - pondmx;
+
+          // Fx1
+          // Interpolate --- (dual)
+          c0    = Fmesh(i - 1 + indx, em::ex1);
+          c1    = Fmesh(i + indx, em::ex1);
+          f0[0] = c0 * pondmx + c1 * pondpx;
+          // Fx2
+          // Interpolate --- (primal)
+          c0    = Fmesh(i, em::ex2);
+          c1    = Fmesh(i + 1, em::ex2);
+          f0[1] = c0 * ponpmx + c1 * ponppx;
+          // Fx3
+          // Interpolate --- (primal)
+          c0    = Fmesh(i, em::ex3);
+          c1    = Fmesh(i + 1, em::ex3);
+          f0[2] = c0 * ponpmx + c1 * ponppx;
+        } else if constexpr (D == Dim::_2D) {
+          const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
+          const int  j { i2(p) + static_cast<int>(N_GHOSTS) };
+          const auto dx1_ { static_cast<real_t>(dx1(p)) };
+          const auto dx2_ { static_cast<real_t>(dx2(p)) };
+
+          // direct interpolation - Arno
+          int indx = static_cast<int>(dx1_ + HALF);
+          int indy = static_cast<int>(dx2_ + HALF);
+
+          // first order
+          real_t c000, c100, c010, c110, c00, c10;
+
+          real_t ponpmx = ONE - dx1_;
+          real_t ponppx = dx1_;
+          real_t ponpmy = ONE - dx2_;
+          real_t ponppy = dx2_;
+
+          real_t pondmx = static_cast<real_t>(indx + ONE) - (dx1_ + HALF);
+          real_t pondpx = ONE - pondmx;
+          real_t pondmy = static_cast<real_t>(indy + ONE) - (dx2_ + HALF);
+          real_t pondpy = ONE - pondmy;
+
+          // Fx1
+          // Interpolate --- (dual, primal)
+          c000  = Fmesh(i - 1 + indx, j, em::ex1);
+          c100  = Fmesh(i + indx, j, em::ex1);
+          c010  = Fmesh(i - 1 + indx, j + 1, em::ex1);
+          c110  = Fmesh(i + indx, j + 1, em::ex1);
+          c00   = c000 * pondmx + c100 * pondpx;
+          c10   = c010 * pondmx + c110 * pondpx;
+          f0[0] = c00 * ponpmy + c10 * ponppy;
+          // Fx2
+          // Interpolate -- (primal, dual)
+          c000  = Fmesh(i, j - 1 + indy, em::ex2);
+          c100  = Fmesh(i + 1, j - 1 + indy, em::ex2);
+          c010  = Fmesh(i, j + indy, em::ex2);
+          c110  = Fmesh(i + 1, j + indy, em::ex2);
+          c00   = c000 * ponpmx + c100 * ponppx;
+          c10   = c010 * ponpmx + c110 * ponppx;
+          f0[1] = c00 * pondmy + c10 * pondpy;
+          // Fx3
+          // Interpolate -- (primal, primal)
+          c000  = Fmesh(i, j, em::ex3);
+          c100  = Fmesh(i + 1, j, em::ex3);
+          c010  = Fmesh(i, j + 1, em::ex3);
+          c110  = Fmesh(i + 1, j + 1, em::ex3);
+          c00   = c000 * ponpmx + c100 * ponppx;
+          c10   = c010 * ponpmx + c110 * ponppx;
+          f0[2] = c00 * ponpmy + c10 * ponppy;
+
+        } else if constexpr (D == Dim::_3D) {
+          const int  i { i1(p) + static_cast<int>(N_GHOSTS) };
+          const int  j { i2(p) + static_cast<int>(N_GHOSTS) };
+          const int  k { i3(p) + static_cast<int>(N_GHOSTS) };
+          const auto dx1_ { static_cast<real_t>(dx1(p)) };
+          const auto dx2_ { static_cast<real_t>(dx2(p)) };
+          const auto dx3_ { static_cast<real_t>(dx3(p)) };
+
+          // direct interpolation - Arno
+          int indx = static_cast<int>(dx1_ + HALF);
+          int indy = static_cast<int>(dx2_ + HALF);
+          int indz = static_cast<int>(dx3_ + HALF);
+
+          // first order
+          real_t c000, c100, c010, c110, c001, c101, c011, c111, c00, c10, c01,
+            c11, c0, c1;
+
+          real_t ponpmx = ONE - dx1_;
+          real_t ponppx = dx1_;
+          real_t ponpmy = ONE - dx2_;
+          real_t ponppy = dx2_;
+          real_t ponpmz = ONE - dx3_;
+          real_t ponppz = dx3_;
+
+          real_t pondmx = static_cast<real_t>(indx + ONE) - (dx1_ + HALF);
+          real_t pondpx = ONE - pondmx;
+          real_t pondmy = static_cast<real_t>(indy + ONE) - (dx2_ + HALF);
+          real_t pondpy = ONE - pondmy;
+          real_t pondmz = static_cast<real_t>(indz + ONE) - (dx3_ + HALF);
+          real_t pondpz = ONE - pondmz;
+
+          // Fx1
+          // Interpolate --- (dual, primal, primal)
+          c000  = Fmesh(i - 1 + indx, j, k, em::ex1);
+          c100  = Fmesh(i + indx, j, k, em::ex1);
+          c010  = Fmesh(i - 1 + indx, j + 1, k, em::ex1);
+          c110  = Fmesh(i + indx, j + 1, k, em::ex1);
+          c001  = Fmesh(i - 1 + indx, j, k + 1, em::ex1);
+          c101  = Fmesh(i + indx, j, k + 1, em::ex1);
+          c011  = Fmesh(i - 1 + indx, j + 1, k + 1, em::ex1);
+          c111  = Fmesh(i + indx, j + 1, k + 1, em::ex1);
+          c00   = c000 * pondmx + c100 * pondpx;
+          c10   = c010 * pondmx + c110 * pondpx;
+          c0    = c00 * ponpmy + c10 * ponppy;
+          c01   = c001 * pondmx + c101 * pondpx;
+          c11   = c011 * pondmx + c111 * pondpx;
+          c1    = c01 * ponpmy + c11 * ponppy;
+          f0[0] = c0 * ponpmz + c1 * ponppz;
+          // Fx2
+          // Interpolate -- (primal, dual, primal)
+          c000  = Fmesh(i, j - 1 + indy, k, em::ex2);
+          c100  = Fmesh(i + 1, j - 1 + indy, k, em::ex2);
+          c010  = Fmesh(i, j + indy, k, em::ex2);
+          c110  = Fmesh(i + 1, j + indy, k, em::ex2);
+          c001  = Fmesh(i, j - 1 + indy, k + 1, em::ex2);
+          c101  = Fmesh(i + 1, j - 1 + indy, k + 1, em::ex2);
+          c011  = Fmesh(i, j + indy, k + 1, em::ex2);
+          c111  = Fmesh(i + 1, j + indy, k + 1, em::ex2);
+          c00   = c000 * ponpmx + c100 * ponppx;
+          c10   = c010 * ponpmx + c110 * ponppx;
+          c0    = c00 * pondmy + c10 * pondpy;
+          c01   = c001 * ponpmx + c101 * ponppx;
+          c11   = c011 * ponpmx + c111 * ponppx;
+          c1    = c01 * pondmy + c11 * pondpy;
+          f0[1] = c0 * ponpmz + c1 * ponppz;
+          // Fx3
+          // Interpolate -- (primal, primal, dual)
+          c000  = Fmesh(i, j, k - 1 + indz, em::ex3);
+          c100  = Fmesh(i + 1, j, k - 1 + indz, em::ex3);
+          c010  = Fmesh(i, j + 1, k - 1 + indz, em::ex3);
+          c110  = Fmesh(i + 1, j + 1, k - 1 + indz, em::ex3);
+          c001  = Fmesh(i, j, k + indz, em::ex3);
+          c101  = Fmesh(i + 1, j, k + indz, em::ex3);
+          c011  = Fmesh(i, j + 1, k + indz, em::ex3);
+          c111  = Fmesh(i + 1, j + 1, k + indz, em::ex3);
+          c00   = c000 * ponpmx + c100 * ponppx;
+          c10   = c010 * ponpmx + c110 * ponppx;
+          c0    = c00 * ponpmy + c10 * ponppy;
+          c01   = c001 * ponpmx + c101 * ponppx;
+          c11   = c011 * ponpmx + c111 * ponppx;
+          c1    = c01 * ponpmy + c11 * ponppy;
+          f0[2] = c0 * pondmz + c1 * pondpz;
+        }
+      } else if constexpr (O >= 1u) {
+	  f0[0] = 0.0;
+	  f0[1]	= 0.0;
+	  f0[2]	= 0.0;
+      }
+    }
+    
     template <unsigned short O>
     Inline void getInterpFlds(index_t          p,
                               vec_t<Dim::_3D>& e0,

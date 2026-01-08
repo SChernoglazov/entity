@@ -59,6 +59,7 @@ namespace ntt {
      * field component
      * @note Address : bckp(i, j, k, ***)
      */
+    ndfield_t<D, 3> mechForce; 
     ndfield_t<D, 6> bckp;
     /**
      * Current fields at current time step stored as Kokkos Views of dimension D * 3
@@ -117,6 +118,7 @@ namespace ntt {
 
     Fields(Fields&& other) noexcept
       : em { std::move(other.em) }
+      , mechForce {std::move(other.mechForce)}
       , bckp { std::move(other.bckp) }
       , cur { std::move(other.cur) }
       , buff { std::move(other.buff) }
@@ -127,6 +129,7 @@ namespace ntt {
     Fields& operator=(Fields&& other) noexcept {
       if (this != &other) {
         em   = std::move(other.em);
+	mechForce=  std::move(other.mechForce);
         bckp = std::move(other.bckp);
         cur  = std::move(other.cur);
         buff = std::move(other.buff);
@@ -146,6 +149,7 @@ namespace ntt {
     [[nodiscard]]
     auto memory_footprint() const -> std::size_t {
       std::size_t em_footprint   = 6;
+      std::size_t frc_footprint  = 3; 
       std::size_t bckp_footprint = 6;
       std::size_t cur_footprint  = 3;
       std::size_t buff_footprint = 3;
@@ -154,6 +158,7 @@ namespace ntt {
       std::size_t cur0_footprint = 3;
       for (auto d = 0; d < D; ++d) {
         em_footprint   *= em.extent(d);
+	frc_footprint  *= mechForce.extent(d); 
         bckp_footprint *= bckp.extent(d);
         cur_footprint  *= cur.extent(d);
         buff_footprint *= buff.extent(d);
@@ -163,7 +168,7 @@ namespace ntt {
       }
       return (std::size_t)(sizeof(real_t)) *
              (em_footprint + bckp_footprint + cur_footprint + buff_footprint +
-              aux_footprint + em0_footprint + cur0_footprint);
+              aux_footprint + em0_footprint + cur0_footprint + frc_footprint);
     }
 
 /* helpers ---------------------------------------------------------------- */
