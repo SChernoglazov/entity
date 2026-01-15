@@ -505,7 +505,7 @@ namespace kernel::sr {
 
       metric.template transform_xyz<Idx::U, Idx::XYZ>(xp_Cd, ei, ei_Cart);
       metric.template transform_xyz<Idx::U, Idx::XYZ>(xp_Cd, bi, bi_Cart);
-      metric.template transform_xyz<Idx::U, Idx::XYZ>(xp_Cd, fi, fi_Cart);
+      metric.template transform_xyz<Idx::T, Idx::XYZ>(xp_Cd, fi, fi_Cart);
       if (cooling != 0) {
         // backup fields & velocities to use later in cooling
         ei_Cart_rad[0] = ei_Cart[0];

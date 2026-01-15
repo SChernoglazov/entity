@@ -35,13 +35,14 @@ namespace user {
     using arch::ProblemGenerator<S, M>::C;
     using arch::ProblemGenerator<S, M>::params;
 
-    const real_t                     temperature;
+    const real_t                     temperature1, temperature2;
     const real_t                     Lx, Ly, Lz;
     const real_t                     kx, amp; 
  
     inline PGen(const SimulationParams& p, const Metadomain<S, M>& global_domain)
       : arch::ProblemGenerator<S, M> { p }
-      , temperature { p.template get<real_t>("setup.temperature") }
+      , temperature1 { p.template get<real_t>("setup.temperature") }
+      , temperature2 { p.template get<real_t>("setup.temperature2", temperature1) }
       ,	amp { p.template get<real_t>("setup.amp") }
       , Lx { global_domain.mesh().extent(in::x1).second -
              global_domain.mesh().extent(in::x1).first }	
@@ -56,7 +57,7 @@ namespace user {
       const auto c_n0 = params.template get<real_t>("scales.n0");
       const auto c_v0 = params.template get<real_t>("scales.V0");
       std::cout << "q0=" << c_q0 << " n0=" << c_n0 << " v0=" << c_v0 <<std::endl;      
-      arch::InjectUniformMaxwellian<S, M>(params, domain, ONE, temperature, { 1, 2 });
+      arch::InjectUniformMaxwellians<S, M>(params, domain, ONE, {temperature1,temperature2}, { 1, 2 });
 
       auto amp_ {amp};
       auto kx_ {kx};
