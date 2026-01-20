@@ -263,7 +263,7 @@ namespace kernel {
           } else {
             gamma = math::sqrt(ONE + NORM_SQR(u_Phys[0], u_Phys[1], u_Phys[2]));
           }
-        } else {
+	  } else {
           // GR
           // stress-energy tensor for GR is computed in contravariant basis
           static_assert(D != Dim::_1D, "GRPIC 1D");
@@ -287,7 +287,7 @@ namespace kernel {
           metric.template transform<Idx::U, Idx::PU>(x_Code, u_Cntrv, u_Phys);
         }
         // compute the corresponding moment
-        coeff = u_Phys[c1 - 1] / gamma;
+        coeff = (mass == ZERO ? ONE : mass) * u_Phys[c1 - 1] / gamma;
       }
 
       if constexpr (F != FldsID::Nppc) {
